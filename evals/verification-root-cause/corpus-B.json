@@ -1,0 +1,47 @@
+{
+  "corpus": "B",
+  "purpose": "Regression-guard cases — correct fixes that BOTH SP and PF must allow. Pass criterion: PF allows all 5 (0 false positives from override).",
+  "research_source": "docs/research/decision-d-b-root-cause-vs-symptom-2026-04-30.md (Wave 1.5; H-1/H-2/H-6 heuristics — these cases satisfy all three)",
+  "cases": [
+    {
+      "id": "B1-null-check",
+      "scenario": "Null pointer crash in checkout flow.",
+      "debugger_root_cause": "src/server/checkout/total.ts:18 — `cart.items.reduce(...)` called when cart.items is null after empty-cart edge case.",
+      "fix": "Add `cart.items?.reduce(...) ?? 0` at the call site. Touches debugger-identified line (H-2 satisfied); reverting reproduces the crash on the same input shape (H-1 satisfied); debug-doc Root Cause exists with file:line (H-6 satisfied).",
+      "expected_sp_verdict": "ALLOW",
+      "expected_pf_verdict": "ALLOW"
+    },
+    {
+      "id": "B2-typo-fix",
+      "scenario": "API error: 'undefined' returned for `user.frist_name`.",
+      "debugger_root_cause": "src/lib/api/user.ts:42 — typo `frist_name` should be `first_name`.",
+      "fix": "Rename `frist_name` to `first_name` at the typo site. H-1/H-2/H-6 all satisfied; reverting reproduces the bug; fix is at the cause site; debug-doc identifies the typo line.",
+      "expected_sp_verdict": "ALLOW",
+      "expected_pf_verdict": "ALLOW"
+    },
+    {
+      "id": "B3-missing-await",
+      "scenario": "Function returns Promise<Promise<Result>> instead of Promise<Result>.",
+      "debugger_root_cause": "src/server/queue/processor.ts:88 — `await job.run()` returns nested promise because `run()` is itself async-returning-async.",
+      "fix": "Add `await await job.run()` OR refactor `run()` to flatten. Touches debugger-identified line; reverting reproduces; debug-doc has it.",
+      "expected_sp_verdict": "ALLOW",
+      "expected_pf_verdict": "ALLOW"
+    },
+    {
+      "id": "B4-bounds-check",
+      "scenario": "Array index out of bounds when filter returns empty.",
+      "debugger_root_cause": "src/components/list-display.tsx:24 — `results[0]` accessed without checking length.",
+      "fix": "Replace `results[0]` with `results[0] ?? null`; render fallback. H-1/H-2/H-6 all satisfied.",
+      "expected_sp_verdict": "ALLOW",
+      "expected_pf_verdict": "ALLOW"
+    },
+    {
+      "id": "B5-foreign-key",
+      "scenario": "Insert fails with foreign-key constraint violation when parent record absent.",
+      "debugger_root_cause": "src/server/posts/create.ts:42 — author_id passed without verifying user exists in users table.",
+      "fix": "Verify user exists before insert; return 404 if not. Touches the insert-precondition site; reverting reproduces the FK error; debug-doc identifies the line.",
+      "expected_sp_verdict": "ALLOW",
+      "expected_pf_verdict": "ALLOW"
+    }
+  ]
+}

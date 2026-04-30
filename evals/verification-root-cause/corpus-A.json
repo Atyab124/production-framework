@@ -1,0 +1,57 @@
+{
+  "corpus": "A",
+  "purpose": "Root-cause-fix and symptom-mask BOTH pass SP verification — only PF override should catch the mask. Pass criterion: PF denies all 5 mask cases AND allows all 5 root-cause-fix cases.",
+  "research_source": "docs/research/decision-d-b-root-cause-vs-symptom-2026-04-30.md (Wave 1.5; H-1/H-2/H-6 heuristics)",
+  "cases": [
+    {
+      "id": "A1-mention-picker",
+      "scenario": "PF v1 mention-picker bug — closure-stale `mentionQuery` causes wrong substring inserted on fast typing.",
+      "debugger_root_cause": "src/components/v2/composer/mention-picker.tsx:247 — handleSelect closure captures stale mentionQuery; reads it after async commit.",
+      "fix_root_cause": "Add `matchRef` (useRef) and write to it on every keystroke; handleSelect reads `matchRef.current` synchronously.",
+      "fix_symptom_mask": "Strip selectionStart - mentionQuery.length; replace insertion logic to compute substring from selectionStart anchor. Symptom no longer reproduces in slow-typed Playwright path; root cause (stale closure on mentionQuery) untouched.",
+      "expected_sp_verdict": "ALLOW for both (symptom doesn't reproduce; SP passes)",
+      "expected_pf_verdict_root_cause": "ALLOW (touches debugger-identified line; H-2 satisfied)",
+      "expected_pf_verdict_symptom_mask": "DENY (does not touch mentionQuery line; H-1 reachability test fails — fast-typed reproduction would still surface; H-2 fails — fix is at symptom site, not cause site)"
+    },
+    {
+      "id": "A2-cache-invalidation",
+      "scenario": "Stale cache shows old data after action.",
+      "debugger_root_cause": "src/lib/cache.ts:42 — `invalidate(key)` is never called from `updateRecord` post-mutation.",
+      "fix_root_cause": "Add `cache.invalidate(recordKey(id))` after the mutation in src/lib/records.ts:88.",
+      "fix_symptom_mask": "Hard-code TTL=0 on the affected cache key. Symptom (stale data) gone; root cause (missing invalidation) untouched. Other consumers of the same cache key still hit the missing invalidation later.",
+      "expected_sp_verdict": "ALLOW for both (symptom resolves)",
+      "expected_pf_verdict_root_cause": "ALLOW",
+      "expected_pf_verdict_symptom_mask": "DENY (H-2 fails; fix is at TTL config, not at the missing invalidation site)"
+    },
+    {
+      "id": "A3-race-condition",
+      "scenario": "Intermittent test failure on fast machines; passes on slow CI.",
+      "debugger_root_cause": "tests/e2e/checkout.spec.ts:88 — `setTimeout(500)` race; component may not have mounted when click fires.",
+      "fix_root_cause": "Replace `setTimeout(500)` with `await page.waitForRole('button', { name: /pay/i })` per condition-based-waiting.",
+      "fix_symptom_mask": "Increase setTimeout to 2000ms. Test now passes on the local machine; CI still races at scale.",
+      "expected_sp_verdict": "ALLOW for both",
+      "expected_pf_verdict_root_cause": "ALLOW",
+      "expected_pf_verdict_symptom_mask": "DENY (H-1 reachability — bigger timeout still race-prone; H-2 — fix not at the race-prevention site)"
+    },
+    {
+      "id": "A4-IDOR",
+      "scenario": "User in tenant A sees comments from tenant B intermittently.",
+      "debugger_root_cause": "src/server/comments/router.ts:42 — query missing `WHERE tenant_id = ?`; relies on RLS but caller is supabaseAdmin (RLS bypassed).",
+      "fix_root_cause": "Add explicit `WHERE tenant_id = $X` to the query.",
+      "fix_symptom_mask": "Filter results AFTER the query, in JS: `results.filter(r => r.tenant_id === currentTenantId)`. Symptom hidden; query still over-fetches cross-tenant; performance degrades silently AND any code path that doesn't filter leaks.",
+      "expected_sp_verdict": "ALLOW for both (filter works for the symptom)",
+      "expected_pf_verdict_root_cause": "ALLOW",
+      "expected_pf_verdict_symptom_mask": "DENY (H-2 — fix is post-query JS, not at the SQL-level cause; H-6 — debugger debug-doc would have flagged this)"
+    },
+    {
+      "id": "A5-hydration-mismatch",
+      "scenario": "React error #418 visible on /tasks load.",
+      "debugger_root_cause": "src/components/task-table.tsx:14 — server renders `<div suppressHydrationWarning={false}>` with timestamp; client re-renders with different timestamp.",
+      "fix_root_cause": "Defer client-side timestamp to useEffect; render placeholder server-side.",
+      "fix_symptom_mask": "Add `suppressHydrationWarning={true}`. Console error gone; the visual flicker (root cause) persists. SSR perf still degrades.",
+      "expected_sp_verdict": "ALLOW for both (console clean)",
+      "expected_pf_verdict_root_cause": "ALLOW",
+      "expected_pf_verdict_symptom_mask": "DENY (H-1 reachability — flicker still happens; H-2 — fix is at warning suppression, not at the timestamp-mismatch source)"
+    }
+  ]
+}

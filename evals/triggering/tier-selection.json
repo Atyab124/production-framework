@@ -1,0 +1,22 @@
+[
+  {"query": "the post creation form throws a 500 when the title contains an apostrophe — checked logs and it looks like the apostrophe isn't being escaped before going to the db. need to fix this in app/actions/posts.ts", "should_trigger": true},
+  {"query": "i want to add a 'remember me' checkbox to the login page so the session persists for 30 days instead of 1 day. should be a quick one", "should_trigger": true},
+  {"query": "we need to add a soft_deleted_at timestamptz column to the users table so we can do soft deletes instead of hard deletes. there's a migration and we'll need to update every query that filters users", "should_trigger": true},
+  {"query": "the realtime subscription on the messages channel keeps dropping after about 30s and i need to add a reconnect handler with backoff. supabase channel in app/hooks/useMessages.ts", "should_trigger": true},
+  {"query": "we're seeing stale data on the dashboard — the unread count cache isn't invalidating when a message is marked read. need to rework the tag-based invalidation in lib/cache/unread.ts", "should_trigger": true},
+  {"query": "when a user submits an order we insert the order row, decrement inventory for each item, and create a payment record — all in the same server action. right now it's three separate inserts and one of them sometimes fails leaving partial data behind", "should_trigger": true},
+  {"query": "the like button on PostCard feels laggy because it waits for the server roundtrip. i want to make it optimistic — bump the count immediately and roll back if the mutation fails", "should_trigger": true},
+  {"query": "let's build out a notifications module — push, email, in-app, with user preferences page, a digest cron, an unsubscribe link, and a delivery log. fresh module, nothing exists yet", "should_trigger": true},
+  {"query": "i need to build a posts feature: image upload, comments, reactions, threading, mentions, edit history, and a mod queue. roughly 7 deliverables", "should_trigger": true},
+  {"query": "the auth middleware has gotten messy with three different code paths for OAuth, magic link, and password — i want to refactor it into a strategy pattern so each provider lives in its own file", "should_trigger": true},
+  {"query": "fix the typo on the homepage hero — 'Welcom to' should be 'Welcome to'. it's in app/page.tsx line 14", "should_trigger": false},
+  {"query": "bump NEXT_PUBLIC_API_TIMEOUT from 5000 to 8000 in .env.local. nothing else needs changing", "should_trigger": false},
+  {"query": "rename `usr` to `user` in app/components/Header.tsx — just one file, just the variable name", "should_trigger": false},
+  {"query": "update the README install steps — change `npm install` to `pnpm install` since we switched package managers last week", "should_trigger": false},
+  {"query": "what does the `useTransition` hook actually do under the hood? trying to understand if i should be using it for the search input", "should_trigger": false},
+  {"query": "where is the auth session token stored on the client side? trying to debug why it's not being sent on the third-party iframe page", "should_trigger": false},
+  {"query": "what does this regex in app/utils/email.ts validate? `/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/` — is it RFC-compliant or just a sanity check", "should_trigger": false},
+  {"query": "can you review PR #123 and tell me if the diff looks reasonable? i'm not asking you to make any changes, just second-pair-of-eyes", "should_trigger": false},
+  {"query": "fix the misleading comment on line 42 of app/lib/cache.ts — it says 'expires in 5 min' but the actual TTL constant is 10 min. the code is right, only the comment is wrong", "should_trigger": false},
+  {"query": "change the cta button background from blue-600 to blue-700 — purely a visual tweak, no behavior change", "should_trigger": false}
+]
