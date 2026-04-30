@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# =============================================================================
+# user-prompt-submit.sh — Update last_user_prompt_at on every user prompt
+#
+# PURPOSE:
+#   Per ADR-002 D-A bundle: hooks/pre-tool-use.sh gates Edit/Write/Bash on
+#   "tier-selection invoked AFTER the latest user prompt." That comparison
+#   requires last_user_prompt_at to be populated. This hook fires on every
+#   UserPromptSubmit event and writes the current UTC timestamp.
+#
+# CONTRACT:
+#   - Receives UserPromptSubmit event JSON via stdin
+#   - Outputs nothing to stdout (no context modification)
+#   - Exit 0 always; never blocks the prompt
+# =============================================================================
+
+set -euo pipefail
+
+# Read stdin to drain it (CC convention)
+INPUT=$(cat 2>/dev/null || echo "")
+
+# Determine project state file
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+STATE_DIR="${PROJECT_DIR}/.framework-state"
+SESSION_FILE="${STATE_DIR}/session.json"
+
+# If state file missing, init it
+if [ ! -f "${SESSION_FILE}" ]; then
+  mkdir -p "${STATE_DIR}"
+  cat > "${SESSION_FILE}" <<EOF
+{
+  "session_started_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "tier_selection_invoked_at": "",
+  "triage_invoked_at": "",
+  "last_user_prompt_at": ""
+}
+EOF
+fi
+
+# Update last_user_prompt_at to now (UTC ISO 8601)
+NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Use a temp file + sed to update the field portably (avoid jq dependency per CLAUDE.md zero-deps posture)
+tmp=$(mktemp)
+sed -E "s/\"last_user_prompt_at\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"last_user_prompt_at\": \"${NOW}\"/" "${SESSION_FILE}" > "${tmp}"
+mv "${tmp}" "${SESSION_FILE}"
+
+# ---------------------------------------------------------------------------
+# Trigger-audit instrumentation (v2.0.3): log a prompt_received event with a
+# truncated 200-char prompt prefix for cross-correlation with Skill / Agent
+# entries written by pre-tool-use. Best-effort regex extraction; if the prompt
+# contains internal quotes it'll truncate at the first one — fine for prefix.
+# ---------------------------------------------------------------------------
+PROMPT_PREFIX=$(printf '%s' "${INPUT}" | grep -o '"prompt"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"prompt"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' | head -c 200)
+# JSON-escape: backslash, quote, then control chars
+PROMPT_PREFIX="${PROMPT_PREFIX//\\/\\\\}"
+PROMPT_PREFIX="${PROMPT_PREFIX//\"/\\\"}"
+PROMPT_PREFIX="${PROMPT_PREFIX//$'\n'/\\n}"
+PROMPT_PREFIX="${PROMPT_PREFIX//$'\r'/\\r}"
+PROMPT_PREFIX="${PROMPT_PREFIX//$'\t'/\\t}"
+printf '{"timestamp":"%s","event":"prompt_received","prefix":"%s"}\n' "${NOW}" "${PROMPT_PREFIX}" >> "${STATE_DIR}/trigger-audit.jsonl"
+
+exit 0

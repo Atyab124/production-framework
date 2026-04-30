@@ -1,0 +1,31 @@
+{
+  "name": "production-framework",
+  "description": "Enterprise multi-tenant production framework — built on Superpowers. Adds tier selection, Gate 3 production-readiness, enterprise-research-first design, regression-scope discipline, and a 7-question plan validator on top of the Superpowers skill cascade.",
+  "version": "2.1.0",
+  "author": {
+    "name": "Atyab Rehman",
+    "email": "atyabtosif@gmail.com"
+  },
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "tdd",
+    "debugging",
+    "collaboration",
+    "best-practices",
+    "workflows",
+    "enterprise",
+    "multi-tenant",
+    "production-readiness",
+    "tier-selection"
+  ],
+  "credits": {
+    "based_on": {
+      "name": "superpowers",
+      "version": "5.0.7",
+      "author": "Jesse Vincent <jesse@fsck.com>",
+      "homepage": "https://github.com/obra/superpowers",
+      "license": "MIT"
+    }
+  }
+}

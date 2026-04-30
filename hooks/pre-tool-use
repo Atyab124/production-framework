@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+# =============================================================================
+# pre-tool-use.sh — D-A hook bundle (5 gates per ADR-002)
+#
+# PURPOSE:
+#   Gates Edit / Write / Bash tool calls on prerequisite skill invocation OR
+#   bypass-escape-hatch presence. Closes Cluster C1 (13 audit items) by
+#   replicating PF v1 Rule #43 machine-enforcement pattern (per Item 41
+#   STRENGTH evidence) for tier-selection, destructive-ops, phase-break,
+#   critical-finding-blocks-next-phase, and dep-add disciplines.
+#
+# CONTRACT:
+#   - Receives PreToolUse event JSON via stdin (Claude Code hook contract)
+#   - Outputs permissionDecision JSON ('allow' / 'deny') with reason
+#   - Uses permissionDecision: "deny" (NOT exit-code-2 — known CC bugs
+#     #13744, #36071, #40580 make exit-2 unreliable on Edit/Write matchers
+#     per R-A research)
+#
+# 5 GATES (per ADR-002):
+#   1. tier-selection — task-shape prompts + Edit/Write/Bash
+#   2. destructive-ops — Bash matching destructive-verb regex
+#   3. phase-break — Write src/** when no current-phase marker
+#   4. critical-finding-blocks-next-phase — Write src/** when CRITICAL findings open
+#   5. dep-add — Bash matching dep-install regex without Tool-Selection-Chain prefix
+#
+# BYPASS GRAMMAR (three-tier):
+#   - PF_BYPASS=<rule-id>           per-rule, one tool call
+#   - PF_BYPASS_ALL=1 + PF_BYPASS_REASON  session-wide
+#   - .framework-state/PF_GATES_DISABLED  project-level kill switch
+#
+# All bypasses logged append-only to .framework-state/bypass-log.jsonl
+# (Post-Mortem agent mines this log for repeat-bypass patterns).
+# =============================================================================
+
+set -euo pipefail
+
+# Determine plugin + project roots
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+STATE_DIR="${PROJECT_DIR}/.framework-state"
+SESSION_FILE="${STATE_DIR}/session.json"
+BYPASS_LOG="${STATE_DIR}/bypass-log.jsonl"
+KILL_SWITCH="${STATE_DIR}/PF_GATES_DISABLED"
+
+# Read PreToolUse event JSON from stdin
+INPUT=$(cat)
+
+# ---------------------------------------------------------------------------
+# Helper: detect Skill tool invocations of tier-selection / triage and
+# update the corresponding timestamp in session.json BEFORE applying gates.
+# This populates the state pre-tool-use.sh reads on subsequent Edit/Write/Bash.
+# ---------------------------------------------------------------------------
+update_skill_timestamp() {
+  local skill_field="$1"  # tier_selection_invoked_at | triage_invoked_at
+  mkdir -p "${STATE_DIR}"
+  if [ ! -f "${SESSION_FILE}" ]; then
+    cat > "${SESSION_FILE}" <<EOF
+{
+  "session_started_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "tier_selection_invoked_at": "",
+  "triage_invoked_at": "",
+  "last_user_prompt_at": ""
+}
+EOF
+  fi
+  local now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  local tmp=$(mktemp)
+  sed -E "s/\"${skill_field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"${skill_field}\": \"${now}\"/" "${SESSION_FILE}" > "${tmp}"
+  mv "${tmp}" "${SESSION_FILE}"
+}
+
+# ---------------------------------------------------------------------------
+# Helper: emit allow decision (pass-through)
+# ---------------------------------------------------------------------------
+allow() {
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}\n'
+  exit 0
+}
+
+# ---------------------------------------------------------------------------
+# Helper: emit deny decision with reason; log to bypass-log if bypass used
+# ---------------------------------------------------------------------------
+deny() {
+  local reason="$1"
+  # Escape JSON
+  reason="${reason//\\/\\\\}"
+  reason="${reason//\"/\\\"}"
+  reason="${reason//$'\n'/\\n}"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$reason"
+  exit 0
+}
+
+log_bypass() {
+  local rule_id="$1"
+  local reason="${2:-}"
+  mkdir -p "${STATE_DIR}"
+  local ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  printf '{"timestamp":"%s","rule":"%s","reason":"%s","payload":%s}\n' "$ts" "$rule_id" "$reason" "$INPUT" >> "${BYPASS_LOG}"
+}
+
+# ---------------------------------------------------------------------------
+# Helper: trigger-audit instrumentation (added v2.0.3)
+# Logs every Skill + Agent invocation to .framework-state/trigger-audit.jsonl.
+# Cross-reference with user-prompt-submit prompt_received entries to audit
+# trigger fidelity ("did the right skill fire for prompt N?"). Append-only,
+# narrow payload (event + name) — never includes Edit/Write/Bash bodies.
+# ---------------------------------------------------------------------------
+log_invocation() {
+  local event_type="$1"
+  local name="$2"
+  mkdir -p "${STATE_DIR}"
+  local ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  printf '{"timestamp":"%s","event":"%s","name":"%s"}\n' "$ts" "$event_type" "$name" >> "${STATE_DIR}/trigger-audit.jsonl"
+}
+
+# ---------------------------------------------------------------------------
+# Project-level kill switch — bypass everything
+# ---------------------------------------------------------------------------
+if [ -f "${KILL_SWITCH}" ]; then
+  log_bypass "PF_GATES_DISABLED" "project-level kill switch active"
+  allow
+fi
+
+# ---------------------------------------------------------------------------
+# Session-wide bypass
+# ---------------------------------------------------------------------------
+if [ -n "${PF_BYPASS_ALL:-}" ] && [ "${PF_BYPASS_ALL}" = "1" ]; then
+  if [ -z "${PF_BYPASS_REASON:-}" ]; then
+    deny "PF_BYPASS_ALL=1 set without PF_BYPASS_REASON. Set both or use per-rule PF_BYPASS=<rule-id>."
+  fi
+  log_bypass "ALL" "${PF_BYPASS_REASON}"
+  allow
+fi
+
+# ---------------------------------------------------------------------------
+# Parse the tool call
+# ---------------------------------------------------------------------------
+# Expect JSON like:
+# { "tool_name": "Edit"|"Write"|"Bash"|"Skill", "tool_input": { ... } }
+# Use minimal jq-free parsing — ${var//pattern/replacement} where possible
+
+TOOL_NAME=$(printf '%s' "$INPUT" | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+COMMAND=$(printf '%s' "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"command"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+FILE_PATH=$(printf '%s' "$INPUT" | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+SKILL_NAME=$(printf '%s' "$INPUT" | grep -o '"skill"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"skill"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+SUBAGENT_TYPE=$(printf '%s' "$INPUT" | grep -o '"subagent_type"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"subagent_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+
+# ---------------------------------------------------------------------------
+# Skill tool — log invocation, then detect tier-selection / triage + update
+# ---------------------------------------------------------------------------
+if [ "${TOOL_NAME}" = "Skill" ]; then
+  log_invocation "skill" "${SKILL_NAME}"
+  case "${SKILL_NAME}" in
+    *tier-selection*) update_skill_timestamp "tier_selection_invoked_at" ;;
+    *triage*) update_skill_timestamp "triage_invoked_at" ;;
+  esac
+  allow
+fi
+
+# ---------------------------------------------------------------------------
+# Agent / Task dispatch — log only (no gate)
+# ---------------------------------------------------------------------------
+if [ "${TOOL_NAME}" = "Agent" ] || [ "${TOOL_NAME}" = "Task" ]; then
+  log_invocation "agent" "${SUBAGENT_TYPE}"
+  allow
+fi
+
+# ---------------------------------------------------------------------------
+# Read session state — last invocation timestamps
+# ---------------------------------------------------------------------------
+TIER_SELECTION_TS=""
+LAST_USER_PROMPT_TS=""
+if [ -f "${SESSION_FILE}" ]; then
+  TIER_SELECTION_TS=$(grep -o '"tier_selection_invoked_at"[[:space:]]*:[[:space:]]*"[^"]*"' "${SESSION_FILE}" 2>/dev/null | sed 's/.*"tier_selection_invoked_at"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+  LAST_USER_PROMPT_TS=$(grep -o '"last_user_prompt_at"[[:space:]]*:[[:space:]]*"[^"]*"' "${SESSION_FILE}" 2>/dev/null | sed 's/.*"last_user_prompt_at"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+fi
+
+# ---------------------------------------------------------------------------
+# Gate 2 — Destructive-ops (Bash only)
+# ---------------------------------------------------------------------------
+if [ "${TOOL_NAME}" = "Bash" ]; then
+  if printf '%s' "${COMMAND}" | grep -qE 'rm[[:space:]]+-rf|reset[[:space:]]+--hard|push[[:space:]]+(--force|-f)|DROP[[:space:]]+(TABLE|DATABASE|SCHEMA)|TRUNCATE[[:space:]]+TABLE|--no-verify'; then
+    if [ "${PF_BYPASS:-}" = "destructive" ]; then
+      log_bypass "destructive" "explicit bypass for: ${COMMAND}"
+      allow
+    fi
+    deny "Destructive operation detected. Set PF_BYPASS=destructive + PF_BYPASS_REASON to proceed. Pattern matched: rm -rf | reset --hard | push --force | DROP TABLE | TRUNCATE | --no-verify."
+  fi
+
+  # Gate 5 — Dep-add
+  if printf '%s' "${COMMAND}" | grep -qE '(npm|pnpm|yarn|bun)[[:space:]]+(add|install)[[:space:]]+\S'; then
+    if [ "${PF_BYPASS:-}" = "dep-add" ]; then
+      log_bypass "dep-add" "explicit bypass"
+      allow
+    fi
+    deny "Dependency install detected. Document the Tool Selection Chain (eliminate / reuse / one-primitive / build-new) in your prior message, OR set PF_BYPASS=dep-add."
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Gate 1 — tier-selection on Edit/Write/Bash (task-shape prompts)
+# Skip if Bash command is read-only (cat, ls, grep, etc.) — those are not task-shape
+# ---------------------------------------------------------------------------
+if [ "${TOOL_NAME}" = "Edit" ] || [ "${TOOL_NAME}" = "Write" ] || [ "${TOOL_NAME}" = "Bash" ]; then
+  # For Bash, allow read-only commands without tier-selection
+  if [ "${TOOL_NAME}" = "Bash" ]; then
+    if printf '%s' "${COMMAND}" | grep -qE '^(cat|ls|grep|rg|find|head|tail|wc|git[[:space:]]+(status|diff|log|show|branch))[[:space:]]'; then
+      allow
+    fi
+  fi
+
+  # Skip gate if file_path is in framework state or docs (workflow files)
+  if [ -n "${FILE_PATH}" ]; then
+    case "${FILE_PATH}" in
+      */.framework-state/*|*/docs/*|*/.claude-plugin/*) allow ;;
+    esac
+  fi
+
+  # Check if tier-selection was invoked since the last user prompt
+  if [ "${PF_BYPASS:-}" = "tier-selection" ]; then
+    log_bypass "tier-selection" "explicit bypass"
+    allow
+  fi
+
+  # If no user prompt has been seen yet (fresh session, no UserPromptSubmit fired),
+  # the gate is not yet applicable — allow.
+  if [ -z "${LAST_USER_PROMPT_TS}" ]; then
+    allow
+  fi
+
+  # User prompt has fired. Check tier-selection was invoked at or after it.
+  if [ -n "${TIER_SELECTION_TS}" ]; then
+    if [[ "${TIER_SELECTION_TS}" > "${LAST_USER_PROMPT_TS}" ]] || [[ "${TIER_SELECTION_TS}" == "${LAST_USER_PROMPT_TS}" ]]; then
+      allow
+    fi
+  fi
+
+  # User prompt fired AND (tier-selection never invoked OR invoked before the prompt) -> deny.
+  deny "tier-selection has not been invoked since the latest user prompt. Per ADR-002 D-A bundle: invoke production-framework:tier-selection before Edit/Write/Bash on task-shape prompts. Bypass: PF_BYPASS=tier-selection."
+fi
+
+# Default: allow unmatched cases
+allow
