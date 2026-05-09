@@ -1,6 +1,16 @@
 # ADR-006 — v2.2.0 Detection + Adaptation + Recovery Layer
 
-**Status:** Proposed
+**Status:** Accepted (scope expanded 2026-05-09 — see Scope Update below)
+
+## Scope Update — 2026-05-09
+
+This ADR was originally drafted with a v2.1.1 production fix path (top 4 fixes — F-V13 + D1 + D2 + A2) followed by a v2.2.0 upgrade with the full 5-layer plan. Per user direction 2026-05-09 ("incorporate as many fixes as we can, why not just fix everything?"), the split is dropped: every closable finding ships as one consolidated v2.2.0 upgrade.
+
+The implementation cycle's scope, deferred items with rationale, and bootstrap deviation (Builder broken → main-session edits this release) are tracked in `docs/cycle-state.md` and the master plan `docs/plans/v2-2-0-upgrade.md`. The 5-layer design below remains the authoritative architecture doc; only the release packaging changed.
+
+---
+
+**Status (original):** Proposed
 **Date:** 2026-04-30
 **Authors:** Production-framework CTO (Opus 4.7)
 **Reconciliation report:** `docs/reconciliation/v2-2-research-2026-04-30.md`

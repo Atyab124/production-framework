@@ -513,3 +513,29 @@ Either is defensible; pick one and document it. The current framing appears to a
 - `c:/Users/atyab/Experimental - Users/production-framework-v2/docs/research/enterprise-multi-agent-architecture.md` (Axes 1–3 enterprise consensus tables)
 
 **Methodology disclosure:** WebFetch was permission-denied for this session. All Anthropic quotes in Part 2 were retrieved via WebSearch synthesis of the canonical URLs listed above. Quotes are reproduced verbatim as returned by WebSearch. Before any binding architectural decision, re-verify the quoted text against the live canonical URL using direct WebFetch in a session where it's permitted.
+
+---
+
+## Part 5: v2.2.0 Additions (2026-05-09)
+
+Added in the consolidated v2.2.0 upgrade (`docs/plans/v2-2-0-upgrade.md`). Each row maps a new behavior to its SP precedent or Anthropic guidance + N≥3 enterprise analog, per CLAUDE.md THE BINDING RULE.
+
+| Feature ID | Behavior | Citation type | Source | Verified |
+|---|---|---|---|---|
+| D1 | Builder verb-conditional empty-diff gate (`SCOPE: code` + `EMPTY_DIFF_FLAG`) | SP precedent + Anthropic | SP `subagent-driven-development/SKILL.md:102-118` (status grammar — `DONE_WITH_CONCERNS` extension semantics); Anthropic *Building Effective AI Agents* (evaluator-optimizer pattern) | 2026-05-09 |
+| D2 | Real-user smoke for closure-staleness / race classes | SP precedent | SP `verification-before-completion/SKILL.md:19-22` Iron Law specialization for UI deliverables ("NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE") | 2026-05-09 (deferred — F-V11 needs design) |
+| D3 | Researcher post-Write file-existence check | SP precedent | SP `verification-before-completion/SKILL.md:102-105` agent-delegation: "Agent reports success → Check VCS diff → Verify changes → Report actual state." | 2026-05-09 |
+| D4 | Debugger profiler-mode instrumentation gate | SP precedent | SP `systematic-debugging/SKILL.md:18-22` Iron Law extended to performance: "NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST" → NO OPTIMIZATIONS WITHOUT BASELINE | 2026-05-09 |
+| D5 | QA empty-diff REJECT semantics under `SCOPE: code` | SP precedent | SP `spec-reviewer-prompt.md:21-29` "Do Not Trust the Report. Verify by reading code, not by trusting report." | 2026-05-09 |
+| A2 | System-reminder filter on `user-prompt-submit` hook | Anthropic guidance | Anthropic Claude Code system-reminder convention — `<system-reminder>` payload prefix is runtime-injected, not human-turn input | 2026-05-09 |
+| R1 | Per-tool Common Recovery prose in 4 skills (browser-driven-verification, rls-aware-migrations, finishing-a-development-branch, enterprise-research-first) | Anthropic + enterprise | Anthropic *Effective Context Engineering* ("agents can save information from tool call results as artifacts" — recovery doc IS one); Kubernetes runbook conventions; AWS WAF playbooks; Mattermost incident-response runbook format | 2026-05-09 |
+| R2 | `trigger-audit.jsonl` schema extended for MCP tool errors (`event: mcp_tool_call`) | Anthropic + SP | Anthropic Claude Code MCP server docs (https://docs.claude.com/en/docs/claude-code/mcp); SP `bypass-log.jsonl` append-only convention | 2026-05-09 |
+| R3 | Playwright MCP server-restart as first-line recovery | Enterprise convergence (3/3) | Playwright Issues #891 (https://github.com/microsoft/playwright/issues/891), #1305, #24144 — three independent issue threads converge on restart-as-recovery for transient state | 2026-05-09 |
+| M1 | Session-derived metrics (prompt count, skill / agent / MCP invocation counts, sub-agent inheritance count, bypass events) | Anthropic + SP | Anthropic *Effective Context Engineering* (file artifacts as evidence substrate); existing `trigger-audit.jsonl` substrate (v2.0.3) — append-only state files as observability primitive | 2026-05-09 |
+| M2 | Project-agnostic measurement script (`scripts/measurement.sh`) | Enterprise (Google SRE) | Google SRE Book Ch. 6 (Monitoring) — black-box / white-box dual telemetry; metrics emitted to stdout for piping to project's observability layer | 2026-05-09 |
+| F-V18 | Foreground vs background guidance for parallel dispatches | Anthropic + SP | Anthropic Claude Code Agent tool guidance — "Use background when you have genuinely independent work to do in parallel"; SP `dispatching-parallel-agents/SKILL.md` (the skill being amended) | 2026-05-09 |
+| F-V20 | Sub-agent tier-selection inheritance via `SUBAGENT_TYPE` env signal | Enterprise (4/4 BINDING) | OpenAI Agents SDK (handoffs propagate context); LangGraph (supervisor-pattern parent state); AutoGen (group-chat shared message bus); Anthropic *How we built our multi-agent research system* (lead-agent classification flows to sub-agents) | 2026-05-09 |
+| F-V13 | Windows path normalization in `pre-tool-use` docs/ auto-allow | Cross-platform discipline | POSIX path-handling convention; Git Bash on Windows uses backslash native paths in tool inputs; bash parameter expansion `${var//\\//}` is portable | 2026-05-09 |
+| F-V17 | Brownfield onboarding doc | Enterprise convention | ThoughtWorks Tech Radar onboarding pattern; Spotify Backstage adoption guide; Cisco Engineering Practices brownfield retrofit pattern (≥3 enterprise) | 2026-05-09 |
+| Release discipline | 4-gate release contract (dogfood + cross-platform + regression-per-finding + citation-manifest) | SP + Anthropic + enterprise | SP `CLAUDE.md:67-75` skill-changes-require-evaluation; Anthropic *Building Effective AI Agents* (evaluator-optimizer); Google SRE Book Ch. 8 (Release Engineering); Rust RFC process (reference impl required); Linux kernel `tools/testing/selftests/` (per-bug regression tests in-tree) | 2026-05-09 |
+
