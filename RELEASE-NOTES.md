@@ -1,5 +1,56 @@
 # Production Framework v2 — Release Notes
 
+## v2.2.0 (2026-05-09)
+
+Consolidated upgrade closing every empirical finding from real-world use plus the implementable layers of the v2.2 design (ADR-006). Replaces the prior v2.1.1 production fix / v2.2.0 split per user direction 2026-05-09 ("incorporate as many fixes as we can, why not just fix everything?").
+
+**Hook fixes:**
+- Windows path normalization in `pre-tool-use` docs/ auto-allow (F-V13). Backslash paths now match the same case-statement as forward-slash paths.
+- Sub-agent tier-selection inheritance via `SUBAGENT_TYPE` (F-V20). When a sub-agent dispatch occurs and the parent already passed tier-selection, the gate inherits the parent's verdict instead of re-firing per sub-agent. Strength preservation: blocking semantic at parent layer is untouched; only redundant per-sub-agent re-fire is suppressed.
+- System-reminder events no longer reset `last_user_prompt_at` (F-V9 sub-fix A2). System reminders (TodoWrite, deferred-tools notifications) used to re-arm the tier-selection gate; now they don't.
+- MCP tool calls logged to `trigger-audit.jsonl` as `event: mcp_tool_call` (ADR-006 R2). Frequency + scope data for MCP failure pattern mining.
+
+**Agent contracts:**
+- Builder dispatch contract requires explicit `EXECUTE` verb + `scope: code | verdict | analysis | docs` declaration (F-V7 + F-V10). Ambiguous "execute the plan" phrasing produced empty-diff silent failures; the new contract is unambiguous.
+- Builder reports `EMPTY_DIFF_FLAG: true` when scope=code but no files changed (D1). Self-attested honesty signal; QA's Stage 1 REJECT (D5) is the independent verifier.
+- Researcher must verify final-Write file existence at the declared path before reporting DONE (D3). Catches silent path-typo failures.
+- Debugger profiler-mode requires baseline instrumentation before optimization (D4). Mirrors the Debug-cycle no-fix-without-root-cause Iron Law for performance work.
+- QA Stage 1 returns REJECT when scope=code and the diff shows zero files changed (D5). Empty diffs surface immediately, not after merge.
+
+**Skill body:**
+- `dispatching-parallel-agents`: foreground vs background subsection with decision table (F-V18). Future agents stop re-deriving the answer from scratch.
+- `browser-driven-verification`: Common Recovery section with 4 failure modes (F-V8 + R1 + R3). Lock-fail recovery, MCP server-restart-as-first-line.
+- `rls-aware-migrations`: Common Recovery section (R1). Schema-state mismatch, permission-denied, drop-with-dependents, deadlock recovery paths.
+- `finishing-a-development-branch`: Common Recovery section (R1). Push divergence, hook failure, merge conflict, gh-pr 404 recovery paths.
+- `enterprise-research-first`: Common Recovery section (R1). WebFetch denial, sparse search results, mirror-as-source, stale-citation recovery paths.
+
+**New artifacts:**
+- `docs/onboarding-brownfield.md` — onboarding guide for projects with existing patterns docs / ADR conventions (F-V17). CONFIG path indirection is the load-bearing primitive.
+- `scripts/measurement.sh` — session-derived metrics emitter (M1 + M2). Project-agnostic; emits JSON to stdout for piping to project's observability layer.
+- `evals/regression/` — regression test manifests for closed findings (release-discipline Gate 3). Eight test manifests + README.
+
+**Discipline:**
+- New `docs/release-discipline.md` contract — four pre-release gates: dogfood, cross-platform, regression-per-finding, citation-manifest current. Effective from v2.1.1+ (now v2.2.0+ since the split was dropped).
+- Citation manifest extended with rows for D1-D5, A2, R1-R3, M1-M2, F-V13, F-V17, F-V18, F-V20, and the release-discipline contract itself.
+
+**Empirical findings closed (9):**
+- F-V7 — Builder dispatch verb ambiguity
+- F-V8 — Per-tool Common Recovery prose absent
+- F-V9 sub-fix A2 only — system-reminder filter (A1 stays OPEN; needs FM-12 mitigation)
+- F-V10 — Builder silent-DONE empty-diff
+- F-V13 — Windows path-separator bug in docs/ auto-allow
+- F-V17 — Brownfield onboarding doc missing
+- F-V18 — Foreground/background guidance missing
+- F-V20 — Hook-side sub-agent inheritance missing
+- F-V22 — Resolved by clarifying F-V11's deferred status
+
+**Empirical findings deferred with rationale:**
+F-V9 A1 (cycle-state.md cooperation; FM-12 risk unresolved); F-V11 (verification skill rewrite; needs decision on what replaces lines 110-112); F-V12 (fast-path threshold; needs WS4 default-deny spec); D2 (depends on F-V11); F-V14, F-V15, F-V16 (need cross-project signal / research cycles); F-V19, F-V21 (depend on F-V20 reproduction or are CC-side); FD-03 (parked).
+
+**Bootstrap deviation declared:** Builder broken (F-V21); this release implemented via main-session edits, not Builder dispatch. Future releases run via dogfooded Builder dispatch once Builder is reliable.
+
+---
+
 ## v2.1.0 (2026-04-30)
 
 ### New skill: `heavy-read-dispatch` + CONFIG path indirection
