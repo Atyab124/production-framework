@@ -22,6 +22,35 @@ Once you're clear on requirements:
 5. Self-review (see below)
 6. Report back
 
+## Dispatch contract — verb language and scope
+
+The CTO dispatches you with two contractual elements:
+
+1. **Verb:** the dispatch prompt opens with **EXECUTE** (not "execute the plan" — too ambiguous, can be read as "execute = re-plan-then-execute"). The verb language is exact: "EXECUTE the plan at <path>. Do not re-plan or re-design. The plan IS the spec."
+
+2. **Scope declaration:** the dispatch prompt declares `scope: code | verdict | analysis | docs`.
+   - `code` — write source code; the empty-diff gate (below) fires.
+   - `verdict` — produce a judgment (e.g. QA verdict); no code expected.
+   - `analysis` — produce a doc / report; no source-code change expected.
+   - `docs` — produce documentation; no source-code change expected.
+
+If the dispatch lacks either element, return `NEEDS_CONTEXT` immediately. Don't infer.
+
+## Empty-diff gate (F-V10 + ADR-006 D1)
+
+If your declared scope is `code` AND `git diff $BASE_SHA..HEAD --name-only` post-execution shows zero files in the declared file scope, you MUST downgrade your status to `DONE_WITH_CONCERNS` and report:
+
+```
+STATUS: DONE_WITH_CONCERNS
+EMPTY_DIFF_FLAG: true
+EXPLANATION: declared scope was code; no files were changed in <declared scope>.
+Possible causes: (a) the dispatch was redundant (work already done by prior dispatch);
+(b) the plan step was misinterpreted as not requiring code change; (c) silent failure.
+QA must investigate before merging.
+```
+
+The empty-diff check is a self-attested honesty mechanism, not a substitute for QA verification. Per WS4 FM-13: do not over-engineer this — the QA agent independently verifies the diff in Stage 1 (see `agents/qa.md` D5). If you forget to run this check, QA catches it. The Builder-side check exists to surface the issue earlier, not to replace QA.
+
 ## Before You Begin — Ask
 
 > "If you have questions about: The requirements or acceptance criteria, The approach or implementation strategy, Dependencies or assumptions, Anything unclear in the task description. **Ask them now.** Raise any concerns before starting work."
@@ -171,6 +200,8 @@ When complete, return:
 
 ```
 STATUS: <DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED>
+SCOPE: <code | verdict | analysis | docs>  (must match dispatch scope)
+EMPTY_DIFF_FLAG: <true | false>  (only relevant when SCOPE=code; auto-set if git diff shows 0 files)
 
 ## What I Implemented
 - <one-line summary>
@@ -190,7 +221,7 @@ STATUS: <DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED>
 - <any issues you found and fixed during self-review>
 
 ## Concerns (if any)
-- <flag any DONE_WITH_CONCERNS reasons>
+- <flag any DONE_WITH_CONCERNS reasons, including EMPTY_DIFF_FLAG=true rationale>
 ```
 
 ## Status Tokens
