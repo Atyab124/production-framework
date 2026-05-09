@@ -1,0 +1,10 @@
+{
+  "name": "Brownfield onboarding doc exists",
+  "finding_id": "F-V17",
+  "symptom": "No documented path for adopting PF v2 in projects with existing patterns docs / ADR conventions.",
+  "repro_command": "test -f docs/onboarding-brownfield.md && wc -l docs/onboarding-brownfield.md",
+  "expected_output_match": "[5-9][0-9]|[1-9][0-9][0-9]",
+  "expected_output_no_match": "(missing)",
+  "fix_commit": "v2.2.0",
+  "last_verified": "2026-05-09"
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Windows path normalization in pre-tool-use docs/ auto-allow",
+  "finding_id": "F-V13",
+  "symptom": "On Windows, every Edit to a docs/ path was denied by the tier-selection gate because the case-statement pattern */docs/* used forward slashes but Windows file_path values arrived with backslashes.",
+  "repro_command": "echo '{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"c:\\\\Users\\\\test\\\\production-framework-v2\\\\docs\\\\PROJECT-PLAN.md\"}}' | bash hooks/pre-tool-use",
+  "expected_output_match": "\"permissionDecision\":\"allow\"",
+  "expected_output_no_match": "\"permissionDecision\":\"deny\"",
+  "fix_commit": "v2.2.0",
+  "last_verified": "2026-05-09"
+}

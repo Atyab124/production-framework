@@ -1,0 +1,10 @@
+{
+  "name": "System-reminder events do not reset last_user_prompt_at",
+  "finding_id": "F-V9 sub-fix A2",
+  "symptom": "UserPromptSubmit events caused by system reminders (TodoWrite reminders, deferred-tools notifications) reset last_user_prompt_at, re-arming the tier-selection gate and multiplying ceremony tax.",
+  "repro_command": "rm -rf /tmp/pf-sr-test && export CLAUDE_PROJECT_DIR=/tmp/pf-sr-test && printf '%s' '{\"prompt\":\"<system-reminder>The TodoWrite tool hasnt been used\"}' | bash hooks/user-prompt-submit && grep last_user_prompt_at /tmp/pf-sr-test/.framework-state/session.json",
+  "expected_output_match": "last_user_prompt_at\": \"\"",
+  "expected_output_no_match": "last_user_prompt_at\": \"2026",
+  "fix_commit": "v2.2.0",
+  "last_verified": "2026-05-09"
+}
