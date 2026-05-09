@@ -199,6 +199,35 @@ if [ "${TOOL_NAME}" = "Bash" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Sub-agent tier-selection inheritance (F-V20)
+# When SUBAGENT_TYPE is set, this Edit/Write/Bash originated from a sub-agent
+# dispatch. The parent session already passed tier-selection (if applicable).
+# Inherit the parent's verdict instead of re-firing the gate per sub-agent.
+# Strength preservation: gate at the parent layer is untouched; this only
+# suppresses redundant per-sub-agent re-fire. Cited: WS2 Q8 BINDING (4/4
+# frameworks: OpenAI Agents SDK / LangGraph / AutoGen / Anthropic).
+# ---------------------------------------------------------------------------
+if [ -n "${SUBAGENT_TYPE:-}" ] && [ -n "${TIER_SELECTION_TS}" ] && [ -n "${LAST_USER_PROMPT_TS}" ]; then
+  if [[ "${TIER_SELECTION_TS}" > "${LAST_USER_PROMPT_TS}" ]] || [[ "${TIER_SELECTION_TS}" == "${LAST_USER_PROMPT_TS}" ]]; then
+    log_invocation "subagent_inherit" "${SUBAGENT_TYPE}"
+    allow
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# MCP tool invocation logging (ADR-006 R2)
+# Log every MCP tool call to trigger-audit so Post-Mortem can mine MCP failure
+# patterns. The hook itself doesn't see the tool's success/failure (PreToolUse
+# fires before execution), but it logs the invocation. Pair with PostToolUse
+# (future) for the error capture; for now, the invocation log alone gives us
+# frequency + scope data.
+# ---------------------------------------------------------------------------
+if [[ "${TOOL_NAME}" == mcp__* ]]; then
+  log_invocation "mcp_tool_call" "${TOOL_NAME}"
+  allow
+fi
+
+# ---------------------------------------------------------------------------
 # Gate 1 — tier-selection on Edit/Write/Bash (task-shape prompts)
 # Skip if Bash command is read-only (cat, ls, grep, etc.) — those are not task-shape
 # ---------------------------------------------------------------------------
@@ -211,8 +240,10 @@ if [ "${TOOL_NAME}" = "Edit" ] || [ "${TOOL_NAME}" = "Write" ] || [ "${TOOL_NAME
   fi
 
   # Skip gate if file_path is in framework state or docs (workflow files)
+  # Normalize backslash to forward-slash for Windows path compatibility (F-V13)
   if [ -n "${FILE_PATH}" ]; then
-    case "${FILE_PATH}" in
+    FILE_PATH_NORM="${FILE_PATH//\\//}"
+    case "${FILE_PATH_NORM}" in
       */.framework-state/*|*/docs/*|*/.claude-plugin/*) allow ;;
     esac
   fi
