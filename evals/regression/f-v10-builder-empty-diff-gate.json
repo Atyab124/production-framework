@@ -1,0 +1,10 @@
+{
+  "name": "Builder declares scope and reports EMPTY_DIFF_FLAG",
+  "finding_id": "F-V10",
+  "symptom": "Builder reported DONE with empty diff; QA had no signal to catch silent failure.",
+  "repro_command": "grep -c 'EMPTY_DIFF_FLAG' agents/builder.md && grep -c 'SCOPE: <code' agents/builder.md && grep -c 'EMPTY_DIFF_FLAG' agents/qa.md",
+  "expected_output_match": "[1-9]",
+  "expected_output_no_match": "^0$",
+  "fix_commit": "v2.2.0",
+  "last_verified": "2026-05-09"
+}

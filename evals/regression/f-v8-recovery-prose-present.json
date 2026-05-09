@@ -1,0 +1,10 @@
+{
+  "name": "Common Recovery section present in 4 named skills",
+  "finding_id": "F-V8 + R1 + R3",
+  "symptom": "Skills had no documented recovery path for transient tool failures; recovery was rediscovered each time.",
+  "repro_command": "for skill in browser-driven-verification rls-aware-migrations finishing-a-development-branch enterprise-research-first; do grep -c '^## Common Recovery' skills/$skill/SKILL.md; done",
+  "expected_output_match": "^1$",
+  "expected_output_no_match": "^0$",
+  "fix_commit": "v2.2.0",
+  "last_verified": "2026-05-09"
+}

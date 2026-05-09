@@ -1,0 +1,10 @@
+{
+  "name": "Builder dispatch template uses unambiguous EXECUTE verb",
+  "finding_id": "F-V7",
+  "symptom": "Builder dispatched with ambiguous 'Execute the implementation plan at...' produced 0 file changes; verb was read as 'execute = re-plan-then-execute'.",
+  "repro_command": "grep -E 'EXECUTE the plan|plan IS the spec' skills/cto-mode/SKILL.md && grep -E 'verb language is exact|verb is contractual|EXECUTE.*uppercase' agents/builder.md",
+  "expected_output_match": "EXECUTE the plan",
+  "expected_output_no_match": "(no_match_pattern)",
+  "fix_commit": "v2.2.0",
+  "last_verified": "2026-05-09"
+}

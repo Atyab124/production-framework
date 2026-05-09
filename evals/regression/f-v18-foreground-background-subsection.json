@@ -1,0 +1,10 @@
+{
+  "name": "dispatching-parallel-agents skill has Foreground vs background section",
+  "finding_id": "F-V18",
+  "symptom": "Skill body had no guidance on when to run parallel dispatches in foreground vs background; future agents re-derived the answer each time.",
+  "repro_command": "grep -c 'Foreground vs background' skills/dispatching-parallel-agents/SKILL.md",
+  "expected_output_match": "[1-9]",
+  "expected_output_no_match": "^0$",
+  "fix_commit": "v2.2.0",
+  "last_verified": "2026-05-09"
+}

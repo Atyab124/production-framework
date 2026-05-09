@@ -1,0 +1,10 @@
+{
+  "name": "Sub-agent tier-selection inheritance via SUBAGENT_TYPE",
+  "finding_id": "F-V20",
+  "symptom": "Every sub-agent's first Edit/Write/Bash was denied by the tier-selection gate even when the parent session had already invoked tier-selection. Builder/Researcher/Architect dispatches required redundant per-context tier-selection invocations.",
+  "repro_command": "rm -rf /tmp/pf-r-test && mkdir -p /tmp/pf-r-test/.framework-state && cat > /tmp/pf-r-test/.framework-state/session.json <<EOF\n{\"session_started_at\":\"2026-05-09T10:00:00Z\",\"tier_selection_invoked_at\":\"2026-05-09T10:01:00Z\",\"triage_invoked_at\":\"\",\"last_user_prompt_at\":\"2026-05-09T10:00:30Z\"}\nEOF\nexport CLAUDE_PROJECT_DIR=/tmp/pf-r-test && echo '{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/tmp/x.txt\",\"subagent_type\":\"production-framework:builder\"}}' | bash hooks/pre-tool-use",
+  "expected_output_match": "\"permissionDecision\":\"allow\"",
+  "expected_output_no_match": "\"permissionDecision\":\"deny\"",
+  "fix_commit": "v2.2.0",
+  "last_verified": "2026-05-09"
+}
