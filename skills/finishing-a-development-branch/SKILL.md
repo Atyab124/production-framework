@@ -190,6 +190,19 @@ git worktree remove <worktree-path>
 - Get typed confirmation for Option 4
 - Clean up worktree for Options 1 & 4 only
 
+## Common Recovery
+
+When git operations fail at branch-finishing time:
+
+| Symptom | Error class | Recovery path | Escalation if recovery fails |
+|---|---|---|---|
+| `non-fast-forward, did not receive expected object` on push | Local branch diverged from remote | (1) `git fetch origin`. (2) Rebase or merge. (3) Re-push. NEVER force-push without explicit user authorization. | If divergence is large or unclear, return BLOCKED and surface to user; do not force-resolve. |
+| `pre-commit hook failed` | Hook is doing real verification; commit is genuinely broken | Read the hook output; fix the underlying issue; create a NEW commit (not amend). | If hook is broken (not the commit), file as separate finding; do not skip with `--no-verify`. |
+| `merge conflict` | Concurrent edits | Resolve conflicts by reading both sides; ask user if intent is unclear. | If conflicts span >5 files, return BLOCKED — likely indicates a missing rebase / coordination step earlier. |
+| `gh pr create` fails with 404 | Remote not configured, or branch not pushed | Verify remote (`git remote -v`); push branch first. | If remote auth is broken, escalate to user — credential issue, not code issue. |
+
+Document any new failure mode in `docs/PROJECT-PLAN.md` Open Findings.
+
 ## Integration
 
 **Called by:**

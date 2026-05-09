@@ -175,6 +175,19 @@ A row that fails any criterion is unverified. Re-verify or strike it.
 - Name outliers. An unnamed outlier invalidates the consensus claim.
 - Use-case-fit check before adopting N/N. "We don't need capability X" is valid divergence; "simpler" is not.
 
+## Common Recovery
+
+When research tooling fails (WebFetch denied, search results sparse):
+
+| Symptom | Error class | Recovery path | Escalation if recovery fails |
+|---|---|---|---|
+| `WebFetch` returns permission-denied for a URL | Domain not in allowlist OR site blocks scrapers | Fall back to WebSearch with the canonical URL as one of the search terms. Tag the citation `(via WebSearch synthesis of canonical URL)` per researcher discipline. | If the URL is critical and WebSearch can't surface it, return NEEDS_CONTEXT — don't fabricate. |
+| Search returns <3 candidate frameworks for the question | Question too narrow OR domain is genuinely niche | Broaden query terms; widen the comparison axis. Try `gh search code` for OSS-implementation-anchored searches. | If <3 found after 15-call budget, return NEEDS_CONTEXT with the search transcript. |
+| Same source cited from multiple URLs (mirrors / aggregators) | Surface diversity is illusory | Treat as one source; find genuinely-different second + third. | If genuine diversity isn't available, the question may be a single-source space; honestly report N=1. |
+| Citation date older than 90 days | Source may have evolved | Re-fetch the URL; verify the quote still appears. Update verification timestamp. | If quote no longer appears, find the new equivalent; update the row; note the change in the methodology section. |
+
+Document any new failure mode in `docs/PROJECT-PLAN.md` Open Findings.
+
 ## Composability
 
 - Feeds into `writing-arch-doc` as the interaction model check.

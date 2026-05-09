@@ -115,6 +115,19 @@ Timing-dependent bugs are reproducible — via synthetic event dispatch faster t
 
 Pre-existing errors are still errors. File them as separate findings. Do NOT absorb. Per Audit Item 12: hydration errors #418/#419 visible across many ship cycles in PF v1 — never caught because each cycle audited only its own changes.
 
+## Common Recovery
+
+When the Playwright MCP server or browser harness fails mid-cycle, here are the failure modes and recovery paths.
+
+| Symptom | Error class | Recovery path | Escalation if recovery fails |
+|---|---|---|---|
+| `Browser is already in use for ms-playwright/mcp-chrome-…/, use --isolated to run multiple instances.` | Lock-fail (orphaned Chrome process tree holds user-data-dir lock) | (1) Restart the Playwright MCP server first (R3 — first-line for transient state). (2) If lock persists: PowerShell — find Chrome processes matching the MCP user-data-dir + kill the tree; remove the lockfile. (3) Re-invoke `browser_navigate`. | Add `--isolated` flag to MCP invocation. If still fails, file under FD-02 MCP plugin compatibility. |
+| `browser_evaluate` returns `Execution context was destroyed` | Page navigation interrupted the evaluate scope | Re-navigate, then re-run evaluate. Common when navigation triggers in the same tick as evaluate. | If reproducible after one retry, the test is racing real navigation; switch to `waitForFunction` first. |
+| `browser_console_messages` returns empty array unexpectedly | Console buffer cleared by navigation | Capture immediately after action; do not navigate before capture. | If buffer still empty, the page may have its own console silencer; check for `console.log = () => {}` in init. |
+| MCP tool times out (>30s) without response | Server hung; transport class | Restart the Playwright MCP server (R3 first-line). | If hangs repeat, file under FD-02 with frequency data; consider degradation path to manual smoke per F-V11 follow-on. |
+
+If the recovery path doesn't fit one of these rows, document the new failure mode + recovery in `docs/PROJECT-PLAN.md` Open Findings as a new finding before proceeding.
+
 ## Red Flags
 
 | Excuse | Reality |

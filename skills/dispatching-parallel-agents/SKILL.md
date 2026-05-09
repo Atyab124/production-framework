@@ -73,6 +73,29 @@ Task("Fix tool-approval-race-conditions.test.ts failures")
 // All three run concurrently
 ```
 
+### 3.5. Foreground vs background
+
+Both modes run agents concurrently if dispatched in one message. The distinction is what your session does while they run:
+
+- **Foreground** — your session blocks waiting for their results. Returns inline; immediately visible in your tool output. Default for parallel dispatches.
+- **Background** — your session keeps working. Results arrive as separate notifications you have to pick up and merge into context. Use only when your session has real, productive, independent work to fill the wait.
+
+**Decision table:**
+
+| Situation | Use |
+|---|---|
+| Next step blocks on all parallel outputs AND no other independent work | foreground |
+| Next step blocks on all outputs BUT there is independent work (other reads, doc writes, plan drafting) | background |
+
+**Why background is not the default:**
+
+- Same wall-clock time when next step blocks on all outputs anyway.
+- Foreground returns inline; background returns as separate notifications that have to be picked up.
+- Multiple background agents = multiple silent failure modes harder to notice.
+- Cognitive overhead scales with concurrency — every pending background agent is open mental state.
+
+Source: Claude Code Agent tool guidance — "Use background when you have genuinely independent work to do in parallel."
+
 ### 4. Review and Integrate
 
 When agents return:
