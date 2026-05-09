@@ -61,6 +61,7 @@ A single doc at `docs/research/<topic>.md` covering:
 - **Verify dates.** Mark every URL with the date of verification. Re-verify URLs older than 90 days when consulted.
 - **Flag WebFetch failures.** If WebFetch is permission-denied for a URL, fall back to WebSearch and tag the citation `(via WebSearch synthesis of canonical URL)`. Disclose this in the methodology note.
 - **No opinion-first.** Research first; opinion second. Do not present a pre-decided recommendation and back-fill citations.
+- **Post-Write file-existence check.** After your final Write to `docs/research/<topic>.md`, verify the file exists at the declared path before reporting DONE. Run `ls -la docs/research/<topic>.md`. If the path doesn't exist or the size is 0, return `NEEDS_CONTEXT` and report which Write call(s) silently failed. This catches path-typo / Edit-on-non-existent-file class failures. (ADR-006 D3.)
 
 ## Search budget
 

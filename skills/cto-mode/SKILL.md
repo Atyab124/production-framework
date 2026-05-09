@@ -78,6 +78,31 @@ You read and write these files. They survive sub-agent boundaries because they l
 
 When dispatching a sub-agent, give it (a) the cycle name (b) its role in the cycle (c) absolute paths to the files it should read and the path to write its output. Do NOT inline file contents into the prompt — agents read from disk.
 
+### Builder dispatch template (must use exact verb + scope)
+
+Per F-V7 + F-V10: Builder dispatches must use unambiguous verb language and explicit scope declaration. Ambiguous "execute the plan" prompts have produced empty-diff silent failures (F-V7 incident, 2026-04-30).
+
+```
+EXECUTE the plan at docs/plans/<feature>.md. Do not re-plan or re-design.
+The plan IS the spec.
+
+scope: code
+file scope: <exact files / globs the Builder owns this dispatch>
+BASE_SHA: <current HEAD>
+plan reference: <task numbers from the plan>
+
+Hand off when DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED.
+```
+
+The verb "EXECUTE" (uppercase) is contractual. Lowercase "execute" or any other verb makes the dispatch ambiguous and risks the F-V7 silent-no-op pattern. The `scope:` declaration is contractual; without it the Builder returns NEEDS_CONTEXT.
+
+For non-code Builder dispatches, use the appropriate scope value:
+- `scope: verdict` — judgment / verdict deliverables (rare for Builder; usually QA)
+- `scope: analysis` — analysis docs / reports
+- `scope: docs` — documentation-only changes
+
+Empty-diff under `scope: code` triggers Builder's `EMPTY_DIFF_FLAG` self-attestation AND QA's Stage 1 REJECT — both layers catch silent failures. (See `agents/builder.md` Empty-diff gate; `agents/qa.md` Stage 1.)
+
 ## Enterprise Proof Rule (binding)
 
 Every implementation plan MUST cite ≥3 named enterprise/OSS implementations of the same pattern. If the Researcher agent returns <3 citations, the Architect rejects the plan and re-dispatches with broader scope. This rule is not optional.

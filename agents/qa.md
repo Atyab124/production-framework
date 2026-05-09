@@ -39,6 +39,7 @@ Two-stage review. Stage 1 first; Stage 2 only if Stage 1 passes.
 - **Missing requirements** — did the Builder skip or fail to actually implement something they claimed to implement?
 - **Extra / unneeded work** — did the Builder over-engineer, build "nice to haves" that weren't in spec, or solve problems that weren't asked?
 - **Misunderstandings** — did the Builder solve the wrong problem, or implement the right feature the wrong way?
+- **Empty diff under SCOPE=code.** If the Builder's dispatch declared `SCOPE: code` and `git diff $BASE_SHA..$HEAD_SHA -- <declared file scope>` shows zero files changed, that is a Stage 1 REJECT regardless of the Builder's status token. The dispatch was either redundant (already done) or silently failed (F-V10 class). Verdict: REJECT. Cause to investigate: was the dispatch redundant (no-op intended), or was there a silent failure? Quote the Builder's `EMPTY_DIFF_FLAG` value and reason in your findings. (ADR-006 D5.)
 
 **Stage 2 — Code quality.** Only run if Stage 1 ✅. Convention adherence, single-responsibility, decomposition, multi-tenant safety, regression coverage, error handling, observability, file-size growth from this change.
 
