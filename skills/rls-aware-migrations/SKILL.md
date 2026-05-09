@@ -114,6 +114,19 @@ Item 9 evidence: arch docs that don't name the rollback envelope produce surpris
 - Rollback envelope explicit (any-time / pre-cutover-only / post-cutover-only / irreversible-with-disclosure).
 - D10 (gate-3) reads this skill's outputs as evidence.
 
+## Common Recovery
+
+When the migration tool (Supabase CLI, plain SQL, or migration runner) fails, recovery paths:
+
+| Symptom | Error class | Recovery path | Escalation if recovery fails |
+|---|---|---|---|
+| `relation "<table>" does not exist` during a backfill phase | Schema-state mismatch — backfill assumes a table that the expand phase didn't create yet | Verify expand phase ran successfully; check `list_tables` against expected schema; re-run expand if missing. | If expand ran and table is still absent, the migration ordering is broken; revert and re-author with explicit phase deps. |
+| `permission denied for table` | RLS policy active but role doesn't satisfy it; or migration role lacks privileges | Confirm the migration runs as superuser / service-role for DDL; user-role for DML. Check policy `USING` clause. | If permission persists with correct role, the policy is over-restrictive; revise per the architect's plan. |
+| `cannot drop column referenced by view / FK / index` | Contract phase missing dependency cleanup | Drop dependents first (views, indexes, FKs) in their own phase before the column. | If dependency graph is unclear, revert and add a `pg_depend` audit step to the plan. |
+| `deadlock detected` during migration | Concurrent reads/writes hold conflicting locks | Re-run during a maintenance window, OR switch to `CREATE INDEX CONCURRENTLY` / `ALTER TABLE ... NOT VALID` patterns. | If still failing, the migration cannot be done online; declare it offline and add downtime plan. |
+
+Document any new failure mode in `docs/PROJECT-PLAN.md` Open Findings.
+
 ## Composability
 
 - **Invoked by `agents/database-engineer.md`** for every multi-tenant migration.
