@@ -1,5 +1,37 @@
 # Production Framework v2 — Release Notes
 
+## v2.3.0 (2026-05-10)
+
+Closes three internal-consistency findings surfaced by user inspection of the framework's own dispatch contract. Adds the Producer-Consumer Convention. Reframes tier-selection's axis basis. Lands the greenfield onboarding guide.
+
+**Skill body:**
+- `cycle-selection`: new "Producer-Consumer Convention (Pattern A / Pattern B)" section. Pattern A = three-pass with producer revision (Tier 3 default); Pattern B = sequential, no revision (Tier 2 default). Per-phase mapping table covers Build phase 3, Build phase 4, Refactor phase 1-2, Migration phase 1-2, Security-Audit phase 1-2.
+- `cycle-selection`: Build cycle phase 3 changed from `architect + researcher (parallel)` to three-pass `architect (pass 1) → researcher → architect (pass 2, finalize)` (F-V23). Same shape applied to Refactor phase 1-2 and Migration phase 1-2. Build phase 4 (Database Engineer + Security and Compliance) and Security-Audit phase 1-2 (Security and Compliance + Researcher) updated to reference the Pattern A / Pattern B convention by tier (F-V25).
+- `tier-selection`: new "What axis the triggers actually rate" section. Reframes the trigger list as a blast-radius fast-path lookup. Explicitly assigns skill-domain (which specialists to dispatch) to `cycle-selection`'s territory. Defers reversibility to the architecture-doc stage. Trigger list rows unchanged (F-V24).
+- `heavy-read-dispatch`: Tier 3 architecture row updated to match the three-pass — Researcher absorbs heavy enterprise reads between Architect pass 1 and pass 2; the skill's context-discipline value is preserved.
+
+**New artifacts:**
+- `docs/onboarding-greenfield.md` — post-install setup guide for fresh-clone projects. Sister to `docs/onboarding-brownfield.md`. Walks reader from install → first-project init → tiny-feature smoke test in roughly 15 minutes. Structure follows N≥3 consensus from 11 enterprise/OSS dev-tool onboarding patterns.
+- `docs/research/cycle-taxonomy-industry-sdlc-2026-05-10.md` — closes 8-cycle citation gap. N=9 industry-methodology consensus (ITIL 4 / Google SRE / DORA / DevOps lifecycle / AWS Well-Architected / Jira / SAFe / Azure Boards / ISO 12207).
+- `docs/research/cycle-taxonomy-ai-frameworks-2026-05-10.md` — 5/8 cycles AI-cited; 3 gaps closed by industry sister doc (Security-Audit, Postmortem, Migration).
+- `docs/research/tier-classification-risk-frameworks-2026-05-10.md` — 12 frameworks surveyed; 9/12 multi-axis; Likelihood × Impact binding pair N=5; skill-domain N=0 as a tier axis.
+- `docs/research/tier-classification-ai-frameworks-2026-05-10.md` — 10 frameworks surveyed; 8/10 separate required-specialism from scope; reversibility N=0 in AI-framework territory.
+- `docs/research/greenfield-onboarding-2026-05-10.md` — 11 frameworks surveyed; consensus TOC carries 11 sections appearing in N≥3.
+
+**README:**
+- Filled `<YOUR_FORK_URL>` placeholder with the actual repository URL.
+- Added Prerequisites section (Claude Code, Git, Bash on Windows, no third-party runtime deps).
+- Added Smoke Test section (post-install verification).
+
+**Empirical findings closed (3):**
+- F-V23 — Architect/Researcher dispatch ordering: three internal sources prescribed three different orderings; resolved by adopting three-pass shape.
+- F-V24 — tier-selection axis was framed as skill-domain but research says skill-domain has zero precedent as a tier axis.
+- F-V25 — Two more parallel-without-feedback idiosyncrasies in Build phase 4 and Security-Audit phase 1.
+
+No hook contract changes. No agent dispatch shape changes. Minor bump per CLAUDE.md versioning policy ("new convention" = minor).
+
+---
+
 ## v2.2.0 (2026-05-09)
 
 Consolidated upgrade closing every empirical finding from real-world use plus the implementable layers of the v2.2 design (ADR-006). Replaces the prior v2.1.1 production fix / v2.2.0 split per user direction 2026-05-09 ("incorporate as many fixes as we can, why not just fix everything?").
