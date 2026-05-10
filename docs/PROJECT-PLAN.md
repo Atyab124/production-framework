@@ -155,7 +155,7 @@ These gate Phase 7. Each maps to a cluster in the audit.
 
 **Relation to existing items:** orthogonal to F-V9 / F-V12 (those are about ceremony cost in agent-internal work; this is about user-facing output). Adjacent to VS-04 compact-preservation (preservation handled; output shape is the next layer).
 
-**Status:** parked. Pull into design when the v2.1.1 production-fix bundle and v2.2.0 layer ship; do not let this distract from the empirical-signal accumulation those releases need.
+**Status:** parked — explicitly **future work**, not next-cycle. v2.2.0 has shipped (Phase 9 COMPLETE 2026-05-09), so the original parked-until trigger has fired, but user direction 2026-05-10 is to keep this queued rather than promote: pulling FD-03 into a cycle today still violates the framework's own N≥3 rule (only Taskforge has exercised the framework end-to-end — see F-V14). When the second and third project signals arrive (per F-V14 candidates: tutoring-platform, ECA-portal), revisit FD-03 with empirical failure-mode characterization first, then split the five candidate axes into separate ADRs (length cap + reply-shape + readback + vocabulary + cadence are independent concerns, not one feature).
 
 ---
 
