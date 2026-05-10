@@ -9,7 +9,7 @@
     {
       "name": "production-framework",
       "description": "Enterprise multi-tenant production framework — built on Superpowers. Adds tier selection, Gate 3 production-readiness, enterprise-research-first design, regression-scope discipline, and a 7-question plan validator on top of the Superpowers skill cascade.",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "source": "./",
       "author": {
         "name": "Atyab Rehman",
