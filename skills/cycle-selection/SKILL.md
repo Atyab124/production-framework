@@ -54,12 +54,31 @@ Scan top-down. First match wins:
 
 Each cycle defines: required agents, parallelism, artifacts. Tier scales which optional agents run.
 
+### Producer-Consumer Convention (Pattern A / Pattern B)
+
+When a phase pairs two agents where one's output feeds the other (producer → consumer), pick the dispatch shape by tier:
+
+- **Pattern A — three-pass (Tier 3 default).** Producer (pass 1, draft + open questions) → Consumer (reads, answers, audits) → Producer (pass 2, finalizes with consumer's input). Use when the producer's output is the cycle's ratified artifact AND no downstream agent synthesizes both sides.
+- **Pattern B — sequential, no revision (Tier 2 default).** Producer → Consumer (sequential). Use when a downstream agent already synthesizes both. Consumer findings that require producer changes escalate the cycle to Tier 3, where Pattern A applies.
+
+Per-phase mapping:
+
+| Phase | Producer | Consumer | Why Pattern A applies at Tier 3 |
+|---|---|---|---|
+| Build phase 3 | Architect | Researcher | Architecture doc is the ratified artifact (F-V23) |
+| Build phase 4 | Database Engineer | Security and Compliance | Database design + RLS migration is the ratified artifact |
+| Refactor phase 1-2 | Architect | Researcher | Same as Build phase 3 |
+| Migration phase 1-2 | Architect | Researcher | Same as Build phase 3 |
+| Security-Audit phase 1-2 | Security and Compliance | Researcher | Findings + remediation cite the ratified controls |
+
+Citations: MetaGPT iterative-refinement loop (https://arxiv.org/html/2308.00352v6 §3.2-3.3), ChatDev review-revise loop (https://arxiv.org/html/2307.07924v5), Anthropic OODA loop (*How we built our multi-agent research system*, Jun 2025). The pattern resolves F-V23 (parallel-without-feedback idiosyncrasy).
+
 ### Build Cycle
 **Trigger:** new behavior. **Graph:**
 1. **product-manager** → spec
 2. **ux-design** (parallel with research) → flows
-3. **architect** + **researcher** (parallel) → architecture + ≥3 enterprise citations
-4. **database-engineer** + **security-compliance** (parallel) → schema + RLS + auth model
+3. **architect (pass 1) → researcher → architect (pass 2, finalize)** (three-pass; resolves F-V23) → (a) Architect drafts design + ADRs they can self-cite + Open Questions for Researcher; (b) Researcher answers those open questions with ≥3 enterprise citations each; (c) Architect finalizes ADRs with citations and locks the plan. Tier 2 may collapse (c) into CTO reconciliation.
+4. **database-engineer + security-compliance** (Pattern A at Tier 3, Pattern B at Tier 2) → schema + RLS + auth model. Tier 3: Database Engineer (pass 1) → Security and Compliance audits → Database Engineer (pass 2, fixes any RLS gaps). Tier 2: sequential, no Database Engineer revision; blocking Security findings escalate the cycle to Tier 3.
 5. **writing-plan** skill → implementation plan referencing spec/architecture/database/security
 6. **builder** instances (one per file scope — typically one backend, one frontend; parallel where files don't overlap; use `worktree-isolation` if they do)
 7. **qa** + **code-reviewer** (parallel) → audit
@@ -85,8 +104,8 @@ Each cycle defines: required agents, parallelism, artifacts. Tier scales which o
 
 ### Refactor Cycle
 **Trigger:** restructure with no new behavior. **Graph:**
-1. **architect** → before/after structure doc
-2. **researcher** → ≥3 enterprise citations of the target pattern
+1. **architect (pass 1)** → before/after structure draft + Open Questions for Researcher
+2. **researcher → architect (pass 2, finalize)** (three-pass; resolves F-V23) → Researcher answers Open Questions with ≥3 enterprise citations of the target pattern; Architect then revises the structure doc to incorporate citations and lock the plan. Tier 2 may collapse the Architect revision into CTO reconciliation.
 3. **regression-scope** skill → enumerate every feature that could regress
 4. **builder** → implementation
 5. **qa** → confirms behavior unchanged + regression suite passes
@@ -94,8 +113,8 @@ Each cycle defines: required agents, parallelism, artifacts. Tier scales which o
 
 ### Security-Audit Cycle
 **Trigger:** audit / harden / pen-test / compliance. **Graph:**
-1. **security-compliance** → audit findings doc with severities
-2. **researcher** (parallel) → ≥3 enterprise citations of the relevant control
+1. **security-compliance (pass 1)** → audit findings doc with severities + Open Questions for Researcher
+2. **researcher → security-compliance (pass 2, refines remediation citations)** (Pattern A at Tier 3, Pattern B at Tier 2) → Researcher cites ≥3 enterprise references for each control named in Security's findings; at Tier 3 Security and Compliance then refines the remediation language with citations. Tier 2: sequential, no Security revision pass — downstream Architect (phase 3) synthesizes both.
 3. **architect** → remediation plan
 4. **builder** → fixes (in severity order)
 5. **qa** → confirms remediation
@@ -112,8 +131,8 @@ Each cycle defines: required agents, parallelism, artifacts. Tier scales which o
 
 ### Migration Cycle
 **Trigger:** schema migration, data backfill, service move. **Graph:**
-1. **architect** → migration plan with rollback strategy
-2. **researcher** → ≥3 enterprise citations of the migration pattern
+1. **architect (pass 1)** → migration plan + rollback strategy draft + Open Questions for Researcher
+2. **researcher → architect (pass 2, finalize)** (three-pass; resolves F-V23) → Researcher answers Open Questions with ≥3 enterprise citations of the migration pattern; Architect then finalizes the plan with citations. Tier 2 may collapse the Architect revision into CTO reconciliation.
 3. **database-engineer** → migration files + RLS-aware test
 4. **security-compliance** → confirms RLS + audit trail intact post-migration
 5. **regression-scope** skill → enumerate everything that touches the moved data

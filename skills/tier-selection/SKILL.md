@@ -62,6 +62,14 @@ Scan top-down. First match wins:
 | Isolated bug or single feature, <6 deliverables, no trigger above | 2 |
 | In doubt | step up |
 
+## What axis the triggers actually rate
+
+Per `docs/research/tier-classification-risk-frameworks-2026-05-10.md` (industry risk) and `docs/research/tier-classification-ai-frameworks-2026-05-10.md` (AI multi-agent frameworks), 17 of 22 surveyed frameworks classify task rigor on multiple axes — most commonly Likelihood × Impact (industry, N=5 binding) and Scope × Required-Specialism (AI, N=8 binding). PF v2's trigger list collapses these into a single output, but each row in the trigger list above is best read as a **blast-radius indicator** (likelihood × impact-if-wrong), not a skill-domain flag.
+
+**Skill-domain (which specialists to dispatch) is `cycle-selection`'s territory, not tier-selection's.** A "schema change" trigger fires Tier 3 because the blast radius of getting RLS wrong is large — not because a Database Engineer happens to be needed. Don't reason from "we need an X agent → step up tier"; reason from "if this is wrong the harm is Y → step up tier."
+
+The trigger list is a fast-path lookup over the underlying axis (matching ITIL 4's Standard-Change pre-approval pattern). For tasks not covered by a trigger row, fall back to the 2-axis judgment (likelihood × impact) and step up in doubt.
+
 ## Common Mistakes
 
 **Sizing from symptom, not root cause.** Triage first; tier-select on the root cause.

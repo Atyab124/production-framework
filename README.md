@@ -53,14 +53,39 @@ Each sub-agent reads from disk (paths the CTO supplies), writes its output to di
 
 ---
 
+## Prerequisites
+
+- **Claude Code** — installed and signed in. Get it from https://docs.claude.com/en/docs/claude-code/quickstart.
+- **Git** — for cloning the marketplace.
+- **Bash** — pre-installed on macOS/Linux. On Windows, install **Git Bash** (https://gitforwindows.org/) — the `hooks/run-hook.cmd` polyglot wrapper invokes bash for hook scripts.
+- **No third-party runtime dependencies.** PF v2 is a zero-dependency plugin like its parent Superpowers; there is no `npm install` or `pip install` step.
+
+---
+
 ## Installation
 
-```bash
-/plugin marketplace add <YOUR_FORK_URL>
+In any Claude Code session:
+
+```
+/plugin marketplace add https://github.com/Atyab124/production-framework
 /plugin install production-framework@production-framework
 ```
 
-Replace `<YOUR_FORK_URL>` with the marketplace location.
+Restart the Claude Code session so the SessionStart hook can fire.
+
+---
+
+## Smoke test (verify the install works)
+
+In a fresh session inside any project, type:
+
+```
+What version of the production-framework can you see?
+```
+
+A correctly installed plugin will answer with the version from `.claude-plugin/plugin.json` (`2.2.0` at time of writing) and identify itself as the CTO orchestrator. If Claude responds without mentioning the framework or the CTO role, the SessionStart hook did not fire — recheck the install with `/plugin list` and restart the session.
+
+For a deeper smoke test, ask Claude to run a Tier 1 task (e.g., "fix the typo in `README.md`"). The framework should walk `tier-selection`, classify it as Tier 1, and execute directly without dispatching agents.
 
 ---
 
