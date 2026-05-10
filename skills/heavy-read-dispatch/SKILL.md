@@ -42,7 +42,7 @@ Main session does not read >3 files of source material to produce a single deliv
 | "Survey all Server Actions" / "audit X area" | Dispatch researcher; main session reads the summary |
 | Pattern catalog from incident memory | Dispatch researcher; main session ratifies via `ratify-pattern` skill |
 | Edit one file you've already located | Direct read; trigger does not match |
-| Tier 3 architecture step | Dispatch researcher BEFORE the architect — research output gates the architect's read scope |
+| Tier 3 architecture step | Architect (pass 1) drafts design + Open Questions for Researcher; dispatch researcher to do the heavy enterprise reads and answer those questions; Architect (pass 2, finalize) reads the researcher's summary to lock the plan. Researcher absorbs the heavy-read context, architect stays lean. (Three-pass; resolves F-V23.) |
 
 ## Composability
 
