@@ -20,9 +20,45 @@
 | Phase 6 — Pass 2 research (4 waves: 1 + 1.5 + 2 + 3) | COMPLETE | — | 14 research artifacts; ~3500 lines of cited research |
 | Phase 7 — Pass 2 implementation | COMPLETE | — | 9 workstreams shipped: A 9 amendments + B 6 new skills + C hook bundle + D 6 carryforwards + E eval scaffold + F 5 stack patterns + G ADR-002+003+manifest + H 2 wave-3 skills + I 5 originally-planned. Total ~47 files created/edited. |
 | Phase 9 — v2.2.0 consolidated upgrade | COMPLETE | gate-3 | Plan: `docs/plans/v2-2-0-upgrade.md`. ADR: `docs/adr/006-v2-2-detection-adaptation-recovery-layer.md`. Closes 9 empirical findings (F-V7, F-V8, F-V9 A2, F-V10, F-V13, F-V17, F-V18, F-V20, F-V22) plus ADR-006 layers D1, D3, D4, D5, A2, R1, R2, R3, M1, M2. Bootstrap deviation declared (Builder broken; main-session implementation). Cross-platform smoke single-platform with Linux/macOS asterisk. Released 2026-05-09 as tag v2.2.0. |
+| Phase 10 — v2.4.0 candidate from TaskIt 2026-05-11 feedback (12 framework gaps + new feedback-authoring skill) | PLANNING | — | Architecture: `docs/architecture/framework-feedback-response-2026-05-12.md`. 7 Researcher artifacts at `docs/research/*-2026-05-12.md`. 10 ADRs at `docs/adr/008-017`. Implementation decomposed by surface affinity into 9 Build cycles (B1-B9, see Phase 10 Detail below). HARD BLOCKER: live-URL re-verification of every Researcher citation (web-fetch denied across every Researcher lane on 2026-05-12; all 37+ citations tagged "via WebSearch synthesis of canonical URL"; CLAUDE.md binding rule forbids implementation against un-verified citations). |
 | Phase 8 — E5 verification + smoke-test | IN_PROGRESS (6/9 verified) | — | Plan at `docs/plans/phase-e5-verification-2026-04-30.md`. Verified at v2.0.2: (1) plugin loads + SessionStart fires ✅ (Taskforge); (2) framework-state-init resets state on /clear ✅; (3+4) tier-selection gate end-to-end (deny on Write; auto-recovery via Skill production-framework:tier-selection; subsequent Write allowed) ✅ (Taskforge); (5) bypass grammar — PF_BYPASS=tier-selection per-rule ✅, PF_BYPASS_ALL=1+REASON ✅, PF_BYPASS_ALL=1 without REASON denies ✅, PF_GATES_DISABLED filesystem kill switch ✅, bypass-log.jsonl JSONL append-only audit ✅ (5/5 paths verified 2026-04-30 via direct hook invocation); (6) destructive-ops gate (rm -rf, git reset --hard) + PF_BYPASS=destructive ✅, dep-add gate (npm install) + PF_BYPASS=dep-add ✅. Pending: (7) skill body lint via scripts/structural-check.sh; (8) full Tier 3 cycle smoke; (9) description-trigger-overlap audit per Option 1; plus D-B eval (3 corpora 15 cases). **Operational note:** plugin updates mid-session do not refresh CC's in-memory hook registry; live hook firing requires a fresh CC session post-update. Step 5+6 verified via direct hook invocation using exact CC JSON contract — equivalent functional coverage. |
 
 **Status tokens:** PENDING | IN_PROGRESS | COMPLETE | COMPLETE_AWAITING_QA | BLOCKED
+
+---
+
+## Phase 10 Detail — Cycle Decomposition (v2.4.0 candidate)
+
+**Source:** TaskIt project's `Taskforge/taskforge/docs/framework-plugin-feedback.md` — 12 items, all dated 2026-05-11, all OPEN at intake. Plus user-requested new feedback-authoring skill (2026-05-12 conversation).
+
+**Design pass complete (2026-05-12):**
+- Architect first pass: clustered the 12 items into 7 themes; drafted 22 research questions. Output at `docs/architecture/framework-feedback-response-2026-05-12.md`.
+- 5 parallel Researcher lanes + 1 follow-on lane: 7 research artifacts at `docs/research/*-2026-05-12.md`; 37+ citations across 22 questions; all met the at-least-three citations threshold.
+- Architect second + third pass: 10 finalized ADRs at `docs/adr/008` through `adr/017`. ADRs 008 and 009 self-cited at the Architect's first pass; ADRs 010 through 017 grounded in Researcher citations.
+
+**Cycle decomposition (Architect's surface-affinity recommendation, 2026-05-12). Each Build cycle has been pre-tier-classified:**
+
+| Build cycle | Surfaces touched | ADRs implemented | Cycle / Tier | Depends on |
+|---|---|---|---|---|
+| B1 — Citation re-verification | `docs/research/*-2026-05-12.md` | covers all | Refactor cycle, Tier 1 (mechanical URL re-fetches; no logic change). Direct execution. | none — must run first |
+| B2 — Plugin version surfacing + README override docs | `hooks/session-start`, `README.md`, `.claude-plugin/plugin.json` | 008 (orchestrator naming), 009 (version surfacing) | Build cycle, Tier 1 (single hook line addition + README paragraph + version-template). Direct execution. | B1 |
+| B3 — Architect intake additions | `agents/architect.md` | 014 (spectrum-vs-binary), 017 (dependency inventory), part of 011 (scale-readiness tag) | Build cycle, Tier 2 (agent-prompt amendment, single file, <6 deliverables). 4-step: audit → plan → implement → production-readiness check. | B1 |
+| B4 — Researcher intake additions | `agents/researcher.md`, `skills/enterprise-research-first/SKILL.md` | 014 (frame-check), 015 (competitor-roster check) | Build cycle, Tier 2 (agent + skill amendment, 2 files). 4-step. | B1 |
+| B5 — Deferral grammar + scale-readiness in plans | `skills/writing-plans/SKILL.md` | 010 (deferral grammar), 011 (scale-readiness commitment) | Build cycle, Tier 2 (single skill amendment with new grammar; touches plan-doc schema). 4-step. | B1, B3 (Architect must surface the tag before plans consume it) |
+| B6 — Pattern-enforcement audit + cross-cutting pattern audit | `skills/proposing-patterns/SKILL.md`, `scripts/qa-structural-checks.sh`, `templates/STACK-PATTERNS.template.md`, new `skills/cross-cutting-pattern-audit/SKILL.md` | 013 (pattern-enforcement audit), 016 (cross-cutting pattern audit) | Build cycle, Tier 3 (new module / multi-feature phase; ≥6 deliverables across skill body + structural-check script + template + new skill). 6-step: architecture doc → research (already done) → plan → implement → QA → production-readiness check. | B1 |
+| B7 — Cycle-phase enforcement at orchestrator | `skills/cto-mode/SKILL.md`, `skills/cycle-selection/SKILL.md`, `docs/cycle-state.md` schema (extended), `templates/cycle-state.template.md` (new) | 012 (phase-state enforcement) | Build cycle, Tier 2 (skill-layer enforcement only; ADR 012 explicitly avoids hook-contract change; <6 deliverables). 4-step. | B1 |
+| B8 — Project bootstrap: COMPETITORS.md + feedback-file CONFIG slot | `templates/PROJECT-PLAN.template.md`, `templates/COMPETITORS.template.md` (new), `using-production-framework` skill (CONFIG slot list), `docs/onboarding-brownfield.md` + `docs/onboarding-greenfield.md` (CONFIG slot row additions) | part of 015 (competitor roster), new `file_paths.framework_feedback_log` slot | Build cycle, Tier 1 (new template + CONFIG slot addition; no logic change; mostly docs). Direct execution. | B1 |
+| B9 — Feedback-authoring skill (new) | new `skills/writing-framework-feedback/SKILL.md` (or similar name) + evals directory | not an ADR; sibling work item from 2026-05-12 conversation | Build cycle, Tier 2 (single new skill, well-scoped, evals-required per skill-creator workflow). Use `skill-creator:skill-creator` per memory rule. 4-step plus skill-creator's own loop. | none — parallel to B1-B8 |
+
+**Open Findings promotion plan:** at the start of each Build cycle, promote the relevant TaskIt feedback items (items 1-12) to F-V27 through F-V37 in the Open Findings table. Each finding row points at the in-progress Build cycle. Close each finding when the Build cycle ships and the structural check (where applicable) passes.
+
+**Sequencing recommendation:** B1 must run first (citation re-verification). B2, B8, B9 can run in parallel (independent surfaces). B3 must precede B5 (Architect tag before plan consumes it). B4, B6, B7 are otherwise independent. B6 is the only Tier 3 cycle and will dominate calendar time.
+
+**Release shape:** all of B1 through B8 land in v2.4.0 (minor bump per `CLAUDE.md` versioning — new conventions, new skill, new templates, no hook contract change). B9 (feedback-authoring skill) ships in v2.4.0 if ready in time or v2.5.0 if not.
+
+**Sample-size disclosure (open finding F-V14):** every fix in B2-B8 generalizes from a single project (TaskIt). The Researcher citations partially substitute for cross-project signal but do not replace it. v2.4.0 release notes must disclose this honestly. B9 (feedback-authoring skill) does not have this caveat because its design is grounded in 14 enterprise sources covering bug-report, post-mortem, and framework-retrospective literature.
+
+**Empirical pressure-test recommendation (skill-creator advice):** before B3-B8 close, the QA stage should walk each Architect's three deferred items from the 2026-05-11 TaskIt session backward through the new defer-with-blocker grammar and scale-readiness tag. If the new grammar would have correctly classified those items at intake (not at user-pushback time), the fix is validated. If not, the fix is incomplete and the cycle reopens.
 
 ---
 
