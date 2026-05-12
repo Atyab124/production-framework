@@ -1,6 +1,6 @@
 # Deferral, Scheduling, and Scale-Readiness — Research Pass 2, Lane R-3
 
-**Author:** Researcher sub-agent, dispatched by CTO of production-framework v2.
+**Author:** Atyab Rehman
 **Date:** 2026-05-12.
 **Source dispatch:** `docs/architecture/framework-feedback-response-2026-05-12.md` §7 Lane R-3.
 **Status:** DONE.

@@ -2,7 +2,7 @@
 
 **Status:** Proposed
 **Date:** 2026-05-12 (Pass-3 finalization after Lane R-5 Researcher return)
-**Authors:** Production-framework Architect sub-agent (Opus 4.7), Pass 3 finalization
+**Author:** Atyab Rehman
 **Supersedes:** Pass-2 placeholder of this ADR (Disposition A through C deferral table) — Lane R-5 has now returned and the disposition is closed in favor of (A).
 
 ---

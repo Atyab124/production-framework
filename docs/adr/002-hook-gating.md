@@ -83,7 +83,7 @@ All bypasses logged append-only to `.framework-state/bypass-log.jsonl` with: tim
 
 ## More Information
 
-- Full research: `docs/research/decision-d-a-hook-gating-architecture-2026-04-30.md` (R-A; Wave 1.5; Opus, 403L)
+- Full research: `docs/research/decision-d-a-hook-gating-architecture-2026-04-30.md` (R-A; Wave 1.5; 403L)
 - Audit context: `docs/audits/v1-feedback-vs-v2-2026-04-30.md` Cluster C1 (Items 14–27 + 39 sub-fix)
 - Implementation plan: `docs/plans/pass-2-implementation-2026-04-30.md` Workstream C
 - Item 41 STRENGTH evidence: PROJECT-PLAN.md Phase 6 Wave 2 entry for `proposing-patterns` (R-3 un-defer rationale cross-references this ADR)

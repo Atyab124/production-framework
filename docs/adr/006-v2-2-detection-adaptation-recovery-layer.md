@@ -12,7 +12,7 @@ The implementation cycle's scope, deferred items with rationale, and bootstrap d
 
 **Status (original):** Proposed
 **Date:** 2026-04-30
-**Authors:** Production-framework CTO (Opus 4.7)
+**Author:** Atyab Rehman
 **Reconciliation report:** `docs/reconciliation/v2-2-research-2026-04-30.md`
 **Research inputs:** 5 docs at `docs/research/v2-2-{detection,adaptation,recovery,strength-preservation,measurement}-2026-04-30.md`
 **Findings folded in:** F-V8, F-V9 (amended), F-V10, F-V11, F-V12, F-V13 (NEW), VS-05 (NEW)
@@ -26,7 +26,7 @@ Empirical use of v2.1.0 in Taskforge (mention-picker UX cycle, BP-12 residual fi
 - **Strengths cluster around PREVENTION** (HARD-GATE blocking, research-first BINDING, snapshot-before-DONE, compact-preservation): all front-loaded gates that fire BEFORE the LLM commits to action. Empirically validated as correct across ≥3 catches per session (VS-03 + VS-05).
 - **Frictions cluster around DETECTION + ADAPTATION + RECOVERY**: silent post-DONE failures (Builder reported DONE with 0 file changes; Playwright suite passed while real-user input reproduced the bug); ceremony tax that doesn't scale down (10× tier-selection re-fires per session for 4 logical task families; 30-LOC remediation produces 100-line plan doc); no documented recovery for tool-state failures (Playwright lock).
 
-Five parallel research workstreams (4× Sonnet 4.6 + 1× Opus 4.7 for adversarial analysis) returned and were reconciled per the parallel-reconciliation skill. This ADR encodes the resulting v2.2.0 design.
+Five parallel research workstreams (one dedicated to adversarial analysis) returned and were reconciled per the parallel-reconciliation skill. This ADR encodes the resulting v2.2.0 design.
 
 ---
 

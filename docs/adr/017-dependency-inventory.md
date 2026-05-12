@@ -2,7 +2,7 @@
 
 **Status:** Proposed (Pass 3 of Pattern A; awaits Build cycle)
 **Date:** 2026-05-12
-**Authors:** Production-framework Architect sub-agent (Opus 4.7), Pass 3 consolidation
+**Author:** Atyab Rehman
 **Producer-Consumer pass:** Researcher Pass 2 → Architect Pass 3 (this doc)
 **Researcher inputs:**
 - `docs/research/architecture-pre-recommendation-discipline-2026-05-12.md` (Lane R-2, Q2.1 — pre-recommendation dependency/component inventory)

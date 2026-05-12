@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-30
 **Decision under research:** Should PF v2.0 add `PreToolUse` hook-gating to prevent self-bypass of `tier-selection` / `triage` / `brainstorming` / destructive ops / dep-add / plan-dir / phase-break disciplines?
-**Author:** v2 research agent
+**Author:** Atyab Rehman
 **Status:** Proposed (ADR-pending; no code modifications in this artifact)
 **Scope:** Architectural decision per CLAUDE.md rejection criterion #5 — "Add a feature without SP or Anthropic citation … rejected." This doc supplies the citations and per-rule scope for an ADR.
 **Audit trail:** Items 14, 15, 17, 18, 19–27, 41 of `docs/audits/v1-feedback-vs-v2-2026-04-30.md`.

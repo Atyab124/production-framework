@@ -1433,8 +1433,6 @@ F-V20 (sub-agent tier-selection inheritance via SUBAGENT_TYPE), F-V9 sub-fix A2
 Strength preservation per WS4: gate logic at the parent layer is untouched;
 only redundant per-sub-agent re-fire and system-reminder timestamp resets are
 suppressed. The blocking semantic of HARD-GATEs is preserved.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 
@@ -1450,8 +1448,6 @@ empty-diff), and ADR-006 D1, D3, D4, D5.
 - Researcher: post-Write file-existence check before DONE
 - Debugger: profiler-mode instrumentation gate before optimization
 - QA: Stage 1 REJECT on empty diff under scope=code
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 
@@ -1462,8 +1458,6 @@ v2.2.0 skill bodies: foreground/background + per-tool Common Recovery
 Closes F-V18 (parallel-dispatch foreground/background guidance) and F-V8 +
 ADR-006 R1 + R3 (per-tool Common Recovery prose in 4 skills with the
 Symptom | Error class | Recovery | Escalation table format).
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 
@@ -1474,8 +1468,6 @@ v2.2.0 new artifacts: brownfield doc, measurement script, regression manifests
 Closes F-V17 (brownfield onboarding) and ADR-006 M1 + M2 (session-derived
 metrics + project-agnostic measurement script). Adds 8 regression test
 manifests in evals/regression/ per release-discipline Gate 3.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 
@@ -1487,16 +1479,12 @@ Citation manifest rows for D1-D5, A2, R1-R3, M1-M2. PROJECT-PLAN findings
 F-V7, F-V8, F-V10, F-V13, F-V17, F-V18, F-V20, F-V22 marked RESOLVED;
 F-V9 A2 sub-fix shipped (A1 stays OPEN). Phase 9 row added. QA + code-review
 + gate-3 audits. Handover doc.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 
 git add .claude-plugin/plugin.json .claude-plugin/marketplace.json RELEASE-NOTES.md
 git commit -m "$(cat <<'EOF'
 v2.2.0 release: version bump + release notes
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```

@@ -2,7 +2,7 @@
 
 **Status:** Proposed (Pass 3 of Pattern A; awaits Build cycle)
 **Date:** 2026-05-12
-**Authors:** Production-framework Architect sub-agent (Opus 4.7), Pass 3 consolidation
+**Author:** Atyab Rehman
 **Producer-Consumer pass:** Researcher Pass 2 → Architect Pass 3 (this doc)
 **Researcher inputs:**
 - `docs/research/pattern-enforcement-2026-05-12.md` (Lane R-4a, Q4.1 + Q4.2 + Q4.3 + Q4.4)
