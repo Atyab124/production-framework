@@ -1,5 +1,102 @@
 # Production Framework v2 — Release Notes
 
+## v2.5.0 (2026-05-17) — IN-DEVELOPMENT
+
+**Theme:** FEEDBACK.md remediation. Closes 9 of 10 framework-fixable items from the 2026-05-17 TaskIt session (F-2 through F-11; F-1 is project-side debt deferred to TaskIt Phase 5 Researcher re-dispatch). Plus 2 perm-fix systematic updates (skipWebFetchPreflight + researcher.md route-around discipline) and 1 new structural check (file-scope intersection on Agent dispatch).
+
+**Plan persisted at:** `~/.claude/plans/v2-5-0-feedback-fixes.md`. Ratified decisions D-1 through D-5 (2026-05-17).
+
+### Workstream A — Plan-vs-codebase pre-emit verification (Theme 2, highest leverage)
+
+- **PR-1:** `skills/writing-plans/SKILL.md` — adds "Pre-emit existence checks" section + "Adoption-plan handshake" sub-rule. Verifies dep/RPC/schema-table/test-runner EXISTENCE only — never shape (preserves Builder discipline per STRENGTH-2 + STRENGTH-3). Closes **F-7**.
+- **A4:** `evals/triggering/writing-plans-preemit.json` — 15-case behavioral eval set (5 deps-present / 5 deps-absent / 5 adoption-plan).
+
+### Workstream B — Worktree hygiene (Theme 1)
+
+- **PR-2:** Catalog WORKTREE entry gains 4th sub-pattern (HEAD-parity check); `hooks/session-start` captures session-start branch + SHA into `.framework-state/session.json`; `hooks/pre-tool-use` denies Builder dispatch on `session-start-SHA != main-session-current-HEAD-SHA` divergence. Closes **F-6**.
+- **PR-3:** `skills/using-production-framework/SKILL.md` inlines worktree caveats so SessionStart context surfaces them eagerly. Closes **F-10**.
+- **PR-4:** `agents/builder.md` documents the hardcoded `isolation: worktree` + workaround (dispatch via `general-purpose` agent type with documented commit-body trade-off; do NOT remove the hardcoded isolation).
+
+### Workstream C — Predicate retunes + tool-channel discrimination (Theme 3a)
+
+- **PR-5:** `docs/catalog/hard-gates.md`:
+  - `researcher-anchor-visual-verification` (C-15): EXCLUDES clause for technical/architectural research keywords (database, queue, retrieval algorithm, observability, infrastructure, encryption, scheduling, RAG, embeddings, cache, migration, RPC, hook, gate, index, partition, replication) + new `bound_target` sub-field (`domain`, `scope`). Closes **F-3**.
+  - `tier-selection-on-task-shape` (C-01): `input_source NOT IN (system_notification, task_notification, system_reminder)` EXCLUDES. Implementation at `hooks/user-prompt-submit` (PR-12). Closes **F-8**.
+- **PR-7:** `agents/researcher.md` — new "Browser tool channel discipline + research routing" section. Channel-routing decision table (5 rows mapping research target type → tool channel) + anti-pattern callout for "browser-for-everything" over-generalization + Write-denied recovery discipline. Closes **F-11** + perm-fix B-researcher.
+
+### Workstream D — Parallel-dispatch safety (Theme 4, NEW structural check)
+
+- **PR-8:** `skills/cycle-selection/SKILL.md` Pattern A section adds "File-scope intersection rule" — producer-edit-in-flight on shared substrate file BLOCKS concurrent dispatch with overlapping required-read scope.
+- **PR-9:** `hooks/pre-tool-use` adds `check_file_scope_intersection` + `record_agent_start` functions; `.framework-state/active-agents.jsonl` tracks scope declarations; non-empty intersection between new dispatch's `scope_read` and in-flight `scope_write` → BLOCKED with diagnostic. `skills/cto-mode/SKILL.md` documents the new dispatch contract (`scope_write:` + `scope_read:` declarations at top of dispatch prompt). Graceful degradation: dispatches without scope declarations skip the check (advisory log; pre-v2.5.0 agent prompts continue to function). Closes **F-4**.
+- **Citations for D3 new surface (4 sources):** `docs/research/file-scope-manifest-citations.md` — Anthropic *Effective context engineering for AI agents* (BINDING, PRINCIPLE fit on isolation + file-artifact substrate), CrewAI `Task.context` + `Task.output_file` (STRONG, LITERAL fit), LangGraph StateGraph + TypedDict state (WEAK, STRUCTURAL fit), AutoGen RoutedAgent + TypeSubscription (WEAK, PRINCIPLE fit). CLAUDE.md binding-rule + `enterprise-research-first` N≥3 rule both satisfied.
+
+### Workstream E — Parallel-reconciliation auto-load (Theme 3b)
+
+- **PR-10:** `hooks/subagent-stop` (NEW script + registered in `hooks.json` under `SubagentStop` event) — on each sub-agent completion, counts completions in the last 10-minute window; if ≥2, writes `.framework-state/pending-reconciliation.jsonl` marker AND injects `parallel-reconciliation` skill body reference into next CTO turn via `hookSpecificOutput.additionalContext`. `skills/parallel-reconciliation/SKILL.md` updated with auto-load contract.
+- **PR-11:** Catalog `parallel-reconciliation` (C-04) escalated from `warn` (max 3) to `block` (no cap). State_when adds `.framework-state/pending-reconciliation.jsonl` unresolved-entry condition. Together: closes **F-9** (warn-tier silent-skip was structurally undiscoverable per FEEDBACK).
+
+### Workstream F — Misc retunes
+
+- **PR-12:** `hooks/user-prompt-submit` filter extended:
+  - Matches `<task-notification>` events (was `<system-reminder>` only) — closes **F-8** (system-event filter complement to PR-5 catalog state_when).
+  - New continuation-prompt filter: regex match on `yes / ok / okay / continue / go / sure / yep / proceed / carry on / do it / keep going / do as you recommend / make the decision end-to-end`, anchored at start of prompt body. Filtered prompts do NOT update `last_user_prompt_at`, so the timestamp comparison in pre-tool-use's tier-selection gate keeps passing — effective per-session tier-verdict cache. Closes **F-2**.
+  - Catalog `tier-selection-on-task-shape` state_when updated to document the predicate refinements.
+- **PR-14:** `skills/writing-plans/SKILL.md` adds "Dispatch model — agent type selection" section. Recommends `production-framework:architect` or `general-purpose` for writing-plans dispatch; explicitly warns against `Plan` built-in agent type (read-only by contract; 15+ min agent-time waste per F-5). Closes **F-5**.
+
+### Workstream G — Permission systematic fixes (NEW; surfaced mid-cycle)
+
+Three blockers surfaced during the v2.5.0 Researcher dispatches (3 failed attempts to gather D3 citations). User-authorized fix:
+
+- **Perm-fix A — `skipWebFetchPreflight: true`** in `~/.claude/settings.json`. Bypasses Claude Code's built-in WebFetch blocklist on `anthropic.com` (the binding-citation domain). Single global flag; user authorized the trade-off explicitly.
+- **Perm-fix B-researcher** (folded into PR-7): `agents/researcher.md` channel-routing table includes Anthropic-via-local-manifest preference, raw-GitHub markdown fallback for JS-SPA docs sites (`langchain-ai.github.io`, `openai.github.io`), and Write-denied inline-content-return discipline.
+- **Perm-fix B-heavy-read — PR-15:** `skills/heavy-read-dispatch/SKILL.md` adds "Known dispatch blockers" section documenting all 3 perm-fix-B route-arounds at the skill body level. Every Researcher dispatch invoked through this skill picks them up automatically.
+
+### FEEDBACK + memory updates
+
+- **F-11 entry added to TaskIt's `framework-plugin-feedback.md`** — formal entry documenting the Researcher tool-channel over-generalization that surfaced during v2.5.0 plan review. Cites the predicate (F-3) vs tool-channel (F-11) split.
+- **4 memory entries written** to the framework-dev memory directory: v2.5.0 release scope, Builder discipline preservation rule, skill-creator-for-skill-edits directive, subagent research blockers (3 distinct blockers + workarounds).
+
+### Deferred to v2.5.1
+
+- **PR-6 — pre-tool-use enforcement of `researcher-anchor-visual-verification` with `updatedInput` injection of `bound_target.domain`.** The high-leverage F-3 close is already achieved via PR-5 (catalog EXCLUDES + bound_target field) + PR-7 (researcher.md channel-routing + anti-pattern callout). PR-6 is the third-layer hook enforcement — useful for hardening but not blocking for v2.5.0.
+- **Per-agent `scope_write` / `scope_read` declarations** — updating each of the 12 agent prompts to declare scope at the top of their template, enabling PR-9's file-scope intersection check to fire on all dispatches. The hook's graceful-degradation branch tolerates missing declarations until the agents are updated.
+- **Citation manifest update** — folding the 4 file-scope citations into `docs/research/sp-anthropic-citation-manifest.md` Part 2 as a new §2.x entry. Citations are durably documented in `docs/research/file-scope-manifest-citations.md` for v2.5.0 release; manifest folding is a maintenance task.
+
+### Files changed
+
+| Path | Type | PR(s) |
+|---|---|---|
+| `.claude-plugin/plugin.json` | version bump | release pack |
+| `.claude-plugin/marketplace.json` | version bump | release pack |
+| `docs/catalog/hard-gates.md` | 4 catalog rows touched (C-01, C-04, C-15, C-18) | PR-5, PR-11, PR-2 |
+| `agents/builder.md` | isolation section added | PR-4 |
+| `agents/researcher.md` | tool-channel section added | PR-7 |
+| `hooks/session-start` | session-start SHA capture added | PR-2 |
+| `hooks/pre-tool-use` | HEAD-parity gate + file-scope intersection check + record_agent_start | PR-2, PR-9 |
+| `hooks/user-prompt-submit` | extended filter (task-notification + continuations) | PR-12 |
+| `hooks/subagent-stop` | NEW script | PR-10 |
+| `hooks/hooks.json` | SubagentStop registration | PR-10 |
+| `skills/writing-plans/SKILL.md` | Dispatch model + Pre-emit existence checks sections | PR-14, PR-1 |
+| `skills/heavy-read-dispatch/SKILL.md` | Known dispatch blockers section | PR-15 |
+| `skills/using-production-framework/SKILL.md` | Worktree caveats section | PR-3 |
+| `skills/cycle-selection/SKILL.md` | File-scope intersection rule under Pattern A | PR-8 |
+| `skills/cto-mode/SKILL.md` | Dispatch contract section (scope_write + scope_read) | PR-9 |
+| `skills/parallel-reconciliation/SKILL.md` | Auto-load contract note | PR-10 |
+| `evals/triggering/writing-plans-preemit.json` | NEW eval set (15 cases) | PR-1 |
+| `RELEASE-NOTES.md` | this entry | release pack |
+
+### v2.5.0 design constraints (carry forward)
+
+The release preserves three Builder-discipline constraints documented in the plan as load-bearing:
+
+1. **No auto-fix branches added to Builder anywhere in v2.5.0.** STRENGTH-2 (Builder caught 9 mechanical bugs inline) + STRENGTH-3 (3 zero-false-positive NEEDS_CONTEXT escalations) depend on Builder strictness; auto-fix would un-mask all 4 of v2.5.0's failure-mode themes.
+2. **PR-1 verifies existence only — no function body shape, no signatures, no type shapes.** The Builder catches shape bugs at execution time; pre-emit shape verification would erode the safety net.
+3. **`isolation: worktree` stays hardcoded in `agents/builder.md`.** The HEAD-parity gate (PR-2) is the correct F-6 fix; relaxing the isolation default would create a lazy-bypass path.
+
+These constraints persist into v2.5.1 and beyond unless re-evaluated with pressure-test evidence.
+
+---
+
 ## v2.4.0 (2026-05-17) — IN-DEVELOPMENT
 
 **Pivot release.** Cancels Phase 10 (the 2026-05-12 ADR-008-through-017 + B1-B9 cycle plan) in favor of a structural rewrite: convert the framework's ~30 universal HARD-GATEs into a per-project configurable catalog with a meta-skill that selects which gates fit each project.

@@ -63,6 +63,35 @@ A single doc at `docs/research/<topic>.md` covering:
 - **No opinion-first.** Research first; opinion second. Do not present a pre-decided recommendation and back-fill citations.
 - **Post-Write file-existence check.** After your final Write to `docs/research/<topic>.md`, verify the file exists at the declared path before reporting DONE. Run `ls -la docs/research/<topic>.md`. If the path doesn't exist or the size is 0, return `NEEDS_CONTEXT` and report which Write call(s) silently failed. This catches path-typo / Edit-on-non-existent-file class failures. (ADR-006 D3.)
 
+## Browser tool channel discipline + research routing (F-11 + perm-fix B, 2026-05-17)
+
+### Channel routing table — walk this BEFORE every tool call
+
+| Research target | Tool channel | Example |
+|---|---|---|
+| Bound anchor's authenticated UI / feature behavior | `browser_navigate` + `browser_take_screenshot` | `app.asana.com/0/tasks/...` (logged-in flows, workflow capture) |
+| Public product docs / marketing pages of the anchor | `WebFetch` | `asana.com/guide/help/tasks` (no auth required) |
+| Anthropic essays / blog posts | **Local manifest first** at `docs/research/sp-anthropic-citation-manifest.md`; WebFetch `anthropic.com` only if the passage you need is absent locally | §2.17 has 5 passages from *Effective context engineering for AI agents*; other §§ cover *Building Effective AI Agents* + *How we built our multi-agent research system* |
+| JS-rendered SPAs (`langchain-ai.github.io`, `openai.github.io`, etc.) | **Raw GitHub markdown** at `raw.githubusercontent.com/<org>/<repo>/main/...` | SPA returns only `"Redirecting..."` bootstrap stub; raw markdown has the actual content |
+| Any other non-anchor research (vendor docs, papers, RFCs, blog posts, GitHub READMEs) | `WebFetch` / `WebSearch` | OpenAI platform docs, pgmq README, arxiv papers |
+
+`browser_navigate` is RESERVED for authenticated UI exploration of the bound anchor domain. Browser snapshots are 10-50x larger than WebFetch markdown for the same content — misrouting inflates session cost without information value.
+
+### Anti-pattern callout (F-11, 2026-05-17)
+
+> "I'll use browser for everything in this dispatch because the gate said browser is required."
+
+**Wrong.** The `researcher-anchor-visual-verification` gate (catalog C-15) names the PRODUCT ANCHOR (Asana's authenticated UI in TaskIt's case), not the RESEARCH MODE. A single research dispatch frequently makes 8-12 tool calls — the gate's intent is to require browser ONCE on the authenticated anchor, NOT 12 times on unrelated sources. Mixed dispatches (anchor-bound UX questions + backend-pattern citations in the same wave) route each tool call to the right channel per the table above.
+
+### Write-denied recovery (perm-fix B, 2026-05-17)
+
+If `Write` to `docs/research/<topic>.md` is permission-denied despite the path being declared in dispatch:
+
+- Return the final assembled document content **inline in your last message** (markdown-formatted, ready to paste).
+- Prefix with: `"Write to <path> was permission-denied; document content follows for parent-session persistence."`
+- The parent CTO writes the file from main session.
+- **Do NOT retry-loop on Write denials.** Return NEEDS_CONTEXT with the exact error string per the framework's anti-fabrication and no-retry-loop discipline. The subagent permission inheritance bug (durable across the v2.5.0 release window) makes Write retries deterministically futile.
+
 ## Search budget
 
 PF Researcher tasks are "direct comparisons" per Anthropic's taxonomy. **Budget: 10-15 search/fetch tool calls per dispatch.**

@@ -1,0 +1,100 @@
+{
+  "name": "writing-plans pre-emit existence checks (PR-1 of v2.5.0)",
+  "finding_id": "F-7",
+  "symptom": "writing-plans produced Phase 5 Lane B tasks that imported @tanstack/react-query and mounted QueryClientProvider without verifying package.json. Verified at Builder dispatch time: @tanstack/react-query was NOT in deps on the target branch. Builder correctly returned NEEDS_CONTEXT; without Builder discipline, an under-disciplined agent could have silently pnpm-add'd the dep + preempted the planned phase-perf adoption pattern.",
+  "fix_commit": "v2.5.0",
+  "last_verified": "2026-05-17",
+  "schema_note": "Each test_cases entry has: category (deps-present | deps-absent | adoption-plan), prompt (realistic plan-authoring directive), expected_behavior (what the post-fix writing-plans should do). This is a behavioral eval — run via skill-creator's eval workflow (writing-plans dispatched with each prompt; check the produced plan against expected_behavior).",
+  "test_cases": [
+    {
+      "id": "DP-1",
+      "category": "deps-present",
+      "prompt": "Plan a task to add a Zod schema for a new user-preferences form. Backend is Next.js App Router Server Actions in src/actions/. zod@3 is in package.json devDependencies.",
+      "expected_behavior": "Emit task referencing zod without escalation. Optionally cite the package.json verification in the task body."
+    },
+    {
+      "id": "DP-2",
+      "category": "deps-present",
+      "prompt": "Plan a task to call supabase.rpc('get_visible_work_items', { p_user_id }). The function CREATE FUNCTION get_visible_work_items is in supabase/migrations/044_visible_items.sql.",
+      "expected_behavior": "Emit task referencing the RPC without escalation. Verification: grep CREATE FUNCTION get_visible_work_items in migrations matches."
+    },
+    {
+      "id": "DP-3",
+      "category": "deps-present",
+      "prompt": "Plan a task to read from the work_items table for the dashboard. CREATE TABLE work_items is in supabase/migrations/001_init.sql with columns id, org_id, title, status, created_at.",
+      "expected_behavior": "Emit task referencing work_items table without escalation. Existence check only — don't claim to have verified column types or RLS shape (that's Builder's job)."
+    },
+    {
+      "id": "DP-4",
+      "category": "deps-present",
+      "prompt": "Plan a task using pgmq for a background-job queue. supabase/migrations/180_pgmq.sql creates the pgmq extension and pgmq.read / pgmq.send RPCs.",
+      "expected_behavior": "Emit task. Don't verify call-signature shape of pgmq.read at plan time (Builder catches the .schema('pgmq').rpc(...) vs .rpc('pgmq_read') mechanical bug per STRENGTH-2)."
+    },
+    {
+      "id": "DP-5",
+      "category": "deps-present",
+      "prompt": "Plan a task adding unit tests via node:test runner. package.json scripts have \"test\": \"node --test --import=tsx tests/**/*.test.ts\".",
+      "expected_behavior": "Emit task. Existence of node:test runner is verified; test-runner shape (whether the import flag handles dynamic imports correctly) remains Builder's discovery."
+    },
+    {
+      "id": "DA-1",
+      "category": "deps-absent",
+      "prompt": "Plan a task that imports @tanstack/react-query and mounts QueryClientProvider at app root. Project hasn't adopted TanStack Query yet — no entry in package.json, no provider mounted anywhere.",
+      "expected_behavior": "ESCALATE as Open Question. Plan must not silently emit a task that requires a missing cross-cutting dep. The escalation should name the dep + ask CTO for the install path."
+    },
+    {
+      "id": "DA-2",
+      "category": "deps-absent",
+      "prompt": "Plan a task to call rpc('upsert_user_notification_pref', { p_user_id, p_pref }). The RPC does not exist in any migration in supabase/migrations/.",
+      "expected_behavior": "ESCALATE as Open Question. The RPC name is referenced in spec but no migration creates it — needs a migration task (DBE work) before any caller task."
+    },
+    {
+      "id": "DA-3",
+      "category": "deps-absent",
+      "prompt": "Plan a task that reads from the audit_events_v2 table for the new compliance dashboard. No CREATE TABLE audit_events_v2 exists; the current audit table is audit_events.",
+      "expected_behavior": "ESCALATE as Open Question. Either the spec means audit_events (typo) or it intends a new audit_events_v2 (requires migration). Producer must not pick silently."
+    },
+    {
+      "id": "DA-4",
+      "category": "deps-absent",
+      "prompt": "Plan a task using vitest's vi.mock() to stub the Supabase client in unit tests. Project uses node:test exclusively; vitest is NOT in package.json or any test config.",
+      "expected_behavior": "ESCALATE as Open Question. Two valid paths: (a) re-tool tasks to use node:test's mock module, or (b) adopt vitest (cross-cutting decision). Producer surfaces both, doesn't pick."
+    },
+    {
+      "id": "DA-5",
+      "category": "deps-absent",
+      "prompt": "Plan a task that imports @sentry/nextjs SDK and wraps the global error handler. Not in package.json; no Sentry integration exists.",
+      "expected_behavior": "ESCALATE as Open Question. Sentry adoption is cross-cutting (DSN config, source-map upload, env vars). Producer must not silently add the dep."
+    },
+    {
+      "id": "AP-1",
+      "category": "adoption-plan",
+      "prompt": "Plan a task that adds PostHog event tracking on the dashboard. PostHog is not in package.json BUT docs/plans/phase-perf-analytics.md describes the planned PostHog adoption with the provider mount point + privacy-mode config + env-var naming.",
+      "expected_behavior": "HANDSHAKE with CTO. Surface: 'PostHog absent from package.json; adoption plan exists at docs/plans/phase-perf-analytics.md. Options: (a) merge this plan's PostHog usage with the adoption plan's wiring, (b) defer the analytics tasks until the adoption plan ships, (c) accept duplication with documented rationale.' Don't silently pnpm add."
+    },
+    {
+      "id": "AP-2",
+      "category": "adoption-plan",
+      "prompt": "Plan a task that uses Drizzle ORM for new query patterns. Drizzle is not in package.json BUT docs/audits/orm-migration-2026-05.md proposes Drizzle adoption with schema layout + migration strategy.",
+      "expected_behavior": "HANDSHAKE with CTO. Adoption-plan handshake: surface the conflict with the ORM-migration audit doc; don't preempt the audit's decision tree."
+    },
+    {
+      "id": "AP-3",
+      "category": "adoption-plan",
+      "prompt": "Plan a task that calls supabase.realtime.channel().on('presence', ...) for the chat-presence indicator. The realtime-presence pattern is documented in docs/plans/realtime-presence.md but not yet wired in src/.",
+      "expected_behavior": "HANDSHAKE with CTO. Surface: pattern documented but not yet implemented; this task would be the first implementation of the documented design. Either co-implement with the realtime-presence plan or defer."
+    },
+    {
+      "id": "AP-4",
+      "category": "adoption-plan",
+      "prompt": "Plan a task that uses zod schemas for API contracts. Zod IS in package.json — but docs/plans/api-validation-strategy.md specifies zod-to-openapi as the canonical wiring with a specific schema-export pattern.",
+      "expected_behavior": "HANDSHAKE with CTO even though zod existence check passes. The adoption plan constrains HOW zod is used; producer must align with the plan's wiring rather than authoring an ad-hoc schema-import pattern."
+    },
+    {
+      "id": "AP-5",
+      "category": "adoption-plan",
+      "prompt": "Plan a task that uses next/dynamic with ssr: false to lazy-load a chart component. Next.js is in package.json BUT docs/plans/server-actions-migration.md is specifically removing client-only dynamic imports in favor of Server Actions + RSC.",
+      "expected_behavior": "HANDSHAKE with CTO. Adoption-plan handshake surfaces the conflict: this task moves the codebase in the opposite direction of the server-actions migration. Producer must not silently emit the regression."
+    }
+  ]
+}

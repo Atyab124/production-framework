@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# =============================================================================
+# subagent-stop — Production Framework v2.5.0 hook (NEW per F-9, 2026-05-17)
+#
+# Fires on SubagentStop event. Tracks sub-agent completions in a rolling
+# .framework-state/active-agents.jsonl; if >=2 completions happened within a
+# tunable window (default 10 minutes) on the same cycle, writes a
+# .framework-state/pending-reconciliation.jsonl marker AND injects the
+# parallel-reconciliation skill body reference into the next CTO turn via
+# hookSpecificOutput.additionalContext.
+#
+# Closes FEEDBACK F-9 (warn-tier skill body never auto-loaded) by making the
+# auto-load the default behavior when parallel returns surface. Composes with
+# catalog C-04 (PR-11 escalated warn->block on the marker file): the auto-load
+# tells the CTO what to do; the gate enforces that it happens before consumers
+# can read the parallel outputs.
+#
+# Citation: SP precedent for hook context injection — hooks/session-start in
+# this same project injects the using-production-framework skill body via
+# additionalContext on every SessionStart event. SubagentStop uses the same
+# mechanism, just triggered on a different event.
+# =============================================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+STATE_DIR="${PROJECT_DIR}/.framework-state"
+ACTIVE_AGENTS="${STATE_DIR}/active-agents.jsonl"
+PENDING_RECONCILIATION="${STATE_DIR}/pending-reconciliation.jsonl"
+RECONCILIATION_WINDOW_SECONDS=600   # 10 minutes — tunable per project if needed
+
+mkdir -p "${STATE_DIR}" 2>/dev/null || true
+[ -f "${ACTIVE_AGENTS}" ] || touch "${ACTIVE_AGENTS}"
+[ -f "${PENDING_RECONCILIATION}" ] || touch "${PENDING_RECONCILIATION}"
+
+INPUT=$(cat 2>/dev/null || echo "")
+NOW_EPOCH=$(date +%s)
+NOW_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Extract subagent_type from the SubagentStop event payload (best-effort regex;
+# field may be absent in some Claude Code versions — we tolerate that).
+SUBAGENT_TYPE=$(printf '%s' "${INPUT}" | grep -o '"subagent_type"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/' 2>/dev/null || echo "unknown")
+[ -z "${SUBAGENT_TYPE}" ] && SUBAGENT_TYPE="unknown"
+
+# Append completion record (one JSON line per completion)
+printf '{"completed_at":"%s","completed_at_epoch":%d,"subagent_type":"%s","event":"stop"}\n' \
+  "${NOW_ISO}" "${NOW_EPOCH}" "${SUBAGENT_TYPE}" >> "${ACTIVE_AGENTS}"
+
+# Count sub-agent completions within the reconciliation window
+WINDOW_START_EPOCH=$((NOW_EPOCH - RECONCILIATION_WINDOW_SECONDS))
+RECENT_COMPLETIONS=$(
+  awk -v window_start="${WINDOW_START_EPOCH}" '
+    /"event":"stop"/ {
+      match($0, /"completed_at_epoch":[0-9]+/)
+      if (RSTART > 0) {
+        epoch_str = substr($0, RSTART, RLENGTH)
+        sub(/.*:/, "", epoch_str)
+        if (epoch_str + 0 >= window_start) count++
+      }
+    }
+    END { print (count + 0) }
+  ' "${ACTIVE_AGENTS}" 2>/dev/null || echo 0
+)
+
+# If >=2 completions in the window AND we haven't already flagged THIS wave,
+# write a pending-reconciliation marker. Wave-id = rounded-down 10-min bucket
+# so completions inside the same window form one wave (idempotent).
+if [ "${RECENT_COMPLETIONS}" -ge 2 ]; then
+  WAVE_ID="wave-$((NOW_EPOCH / RECONCILIATION_WINDOW_SECONDS))"
+  if ! grep -q "\"wave_id\":\"${WAVE_ID}\"" "${PENDING_RECONCILIATION}" 2>/dev/null; then
+    printf '{"wave_id":"%s","detected_at":"%s","completion_count":%d,"status":"pending"}\n' \
+      "${WAVE_ID}" "${NOW_ISO}" "${RECENT_COMPLETIONS}" >> "${PENDING_RECONCILIATION}"
+  fi
+
+  # Build the additionalContext payload. Reference the skill body file path
+  # rather than inlining the full body — keeps the injected payload lean; the
+  # CTO reads the skill on demand. This mirrors the SessionStart hook's
+  # "inject pointer, agent reads details" pattern.
+  context_msg="<system-reminder>\\nF-9 auto-load (v2.5.0): ${RECENT_COMPLETIONS} sub-agent completions detected within the last $((RECONCILIATION_WINDOW_SECONDS / 60)) min on the current cycle. Before consuming these parallel outputs, invoke the parallel-reconciliation skill body at ${PLUGIN_ROOT}/skills/parallel-reconciliation/SKILL.md and produce docs/reconciliation/${WAVE_ID}.md. Catalog C-04 (parallel-reconciliation) is in block-tier (v2.5.0 PR-11) and will deny the next consuming dispatch until the reconciliation doc lands. Bypass: PF_BYPASS=parallel-reconciliation if intentional.\\n</system-reminder>"
+
+  # Platform-specific JSON output (mirrors session-start hook's branching)
+  if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
+    printf '{"additional_context":"%s"}\n' "${context_msg}"
+  elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -z "${COPILOT_CLI:-}" ]; then
+    printf '{"hookSpecificOutput":{"hookEventName":"SubagentStop","additionalContext":"%s"}}\n' "${context_msg}"
+  else
+    printf '{"additionalContext":"%s"}\n' "${context_msg}"
+  fi
+fi
+
+exit 0

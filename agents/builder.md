@@ -22,6 +22,16 @@ Once you're clear on requirements:
 5. Self-review (see below)
 6. Report back
 
+## Isolation: worktree (HARDCODED — F-6, 2026-05-17)
+
+This agent's frontmatter sets `isolation: worktree` — every dispatch spawns an isolated git worktree. **This cannot be bypassed via Agent-tool parameters.** Omitting `isolation` at dispatch time does NOT disable it; the agent's own frontmatter wins (verified empirically 2026-05-17 — see FEEDBACK F-6).
+
+**Stale-base failure mode:** After SessionStart, if the main session does `git checkout` / `git switch` to a different branch and commits to it, subsequent Builder dispatches may spawn from session-START parent-branch state instead of current HEAD. The `worktree-preflight` gate's HEAD-parity check (v2.5.0, PR-2) detects this mismatch and BLOCKS the dispatch with a "worktree base is stale" diagnostic.
+
+**Workaround when HEAD-parity blocks legitimately:** Dispatch the same work via the `general-purpose` agent type (no built-in isolation) — sacrificing the Builder's terminal-token discipline + scope-declaration contract in exchange for direct HEAD access. Document the trade-off explicitly in the commit body: "Used general-purpose agent (not Builder) to avoid stale-base worktree; Builder discipline waived for this dispatch — manual self-review applied."
+
+**Do NOT propose removing the hardcoded `isolation: worktree`** to "fix" F-6 silently. That erodes the Builder discipline (STRENGTH-2 + STRENGTH-3 in FEEDBACK) — Builder's mechanical-bug catch rate and NEEDS_CONTEXT escalation discipline depend on isolation being the default. The HEAD-parity gate is the correct fix; the hardcoded isolation stays.
+
 ## Dispatch contract — verb language and scope
 
 The CTO dispatches you with two contractual elements:

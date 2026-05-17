@@ -91,6 +91,26 @@ The sub-agent's system prompt (from `agents/builder.md`) describes WHAT each gat
 
 This injection mechanism is the substrate for per-project gate selection at the sub-agent layer. Without it, the configurable gates in skill bodies fire universally (the F-V38 over-trigger pattern). With it, only the project's chosen subset enforces.
 
+## Dispatch contract — scope_write + scope_read (F-4, v2.5.0)
+
+When dispatching a sub-agent, declare the **file-scope contract** at the top of the dispatch prompt:
+
+```
+scope_write: docs/research/<topic>.md
+scope_read: docs/architecture/<feature>.md, docs/specs/<feature>.md
+```
+
+- **`scope_write`** — files this agent will create or modify. Single path or comma-separated list. Must be absolute-style (project-root-relative).
+- **`scope_read`** — files this agent will read for its work. Optional, but strongly recommended for cross-agent intersection detection.
+
+**Why:** the pre-tool-use hook (`hooks/pre-tool-use`, function `check_file_scope_intersection`) reads in-flight agents' `scope_write` declarations from `.framework-state/active-agents.jsonl` and computes the intersection with the new dispatch's `scope_read`. Non-empty intersection → BLOCKED with "upstream producer running on `<path>`; wait for completion." This closes FEEDBACK F-4 (transient inconsistency when producer-edit and consumer-read overlap on shared substrate docs).
+
+**Graceful degradation:** dispatches without scope declarations skip the check (advisory log entry, no block). Pre-v2.5.0 agent prompts that don't declare scope continue to function; the check only fires when declarations are present. As v2.5.1+ updates each of the 12 agent prompts to require scope declarations, graceful-degradation becomes the exception rather than the default.
+
+**Bypass:** `PF_BYPASS=file-scope-intersection` when concurrent producer-vs-consumer is intentional (e.g., read-only audit on a doc mid-revision; the producer's revision-in-flight is acceptable noise).
+
+**Citation:** Anthropic *Effective context engineering for AI agents* (BINDING) — "isolated context windows... file artifacts as cross-agent communication substrate." Enterprise analogs documented at `docs/research/file-scope-manifest-citations.md` (CrewAI literal-fit; LangGraph structural; AutoGen principle). The framework's `scope_write[]`/`scope_read[]` arrays are the runtime expression of these patterns at dispatch time.
+
 ## Cycle Templates
 
 You select one via the `cycle-selection` skill. Each template defines (a) which agents run (b) order/parallelism (c) shared-context files written.

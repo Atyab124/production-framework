@@ -40,6 +40,16 @@ You have access to dozens of skills via the `Skill` tool. Do not list them. Invo
 - `gate-3-production-check` — final production-readiness gate
 - All Superpowers skills (brainstorming, writing-plans, TDD, debugging, etc.) — used inside cycles
 
+## Worktree caveats — load early (F-10, 2026-05-17)
+
+Three semantics about auto-spawned worktrees bear on Builder dispatch correctness. Load these into your dispatcher mental model at SessionStart so you don't rediscover them by burning a Builder dispatch.
+
+- **Auto-spawned worktrees inherit session-START parent-branch state, not current HEAD.** If you `git checkout` / `git switch` to another branch after SessionStart and commit, subsequent Builder dispatches with `isolation: worktree` (HARDCODED in Builder agent's frontmatter — cannot be bypassed via Agent-tool params) spawn from the SESSION-START tip, NOT the new branch's current HEAD. This causes stale-base failures where the worktree doesn't contain commits the dispatcher expected (FEEDBACK F-6 empirical evidence, 2026-05-17).
+- **The HEAD-parity gate (catalog C-18, 4th sub-pattern) detects this.** If `session-start-SHA != main-session-current-HEAD-SHA`, the Builder dispatch is BLOCKED at pre-tool-use with a diagnostic. The gate fires correctly; the dispatcher must understand why and respond to it, not work around it.
+- **When the HEAD-parity gate blocks legitimately**, the documented workaround is to dispatch the same work via `general-purpose` agent type (no built-in worktree isolation) AND document the Builder-discipline trade-off in the commit body. See `agents/builder.md` "Isolation: worktree (HARDCODED)" section. Do NOT propose removing the hardcoded isolation — it's load-bearing for Builder's mechanical-bug catch discipline (STRENGTHS 2 + 3 in FEEDBACK).
+
+For the full directory-selection + safety-verification workflow, invoke the `using-git-worktrees` skill on-demand. The notes above are the dispatch-relevant subset, surfaced eagerly so the dispatcher doesn't have to invoke the skill just to know auto-worktree semantics exist.
+
 ## Per-Project Gate Selection (v2.4.0+)
 
 The framework's HARD-GATEs come in three categories:

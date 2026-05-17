@@ -229,6 +229,20 @@ check_active_gates_for_agent_dispatch() {
       if [ -n "${git_dirty}" ] || [ "${has_pinned_sha}" -eq 0 ]; then
         deny "worktree-preflight (FEEDBACK WORKTREE consolidates F-V10/11/21/25/27): Builder worktree dispatch needs (a) clean git status AND (b) BASE_SHA / pinned-SHA in dispatch prompt. Currently git status: ${git_dirty:+dirty}${git_dirty:-clean}; pinned SHA detected: ${has_pinned_sha}. Commit design artifacts first; pass BASE_SHA via 'git rev-parse HEAD'. Bypass: PF_BYPASS=worktree-preflight." "worktree-preflight"
       fi
+      # F-6 (2026-05-17) — 4th sub-pattern: HEAD-parity check. Builder auto-worktree
+      # spawns from session-START parent-branch state, NOT current HEAD. If user did
+      # `git checkout` to another branch and committed mid-session, the spawn base
+      # is stale. Compare session-start SHA (captured by session-start hook) against
+      # current main-session HEAD; deny if they diverge.
+      local session_start_sha=""
+      if [ -f "${STATE_DIR}/session-start.json" ]; then
+        session_start_sha=$(grep -o '"sha"[[:space:]]*:[[:space:]]*"[^"]*"' "${STATE_DIR}/session-start.json" 2>/dev/null | sed 's/.*: *"\(.*\)"/\1/' || echo "")
+      fi
+      local current_head_sha=""
+      current_head_sha=$(cd "${PROJECT_DIR}" && git rev-parse HEAD 2>/dev/null || echo "")
+      if [ -n "${session_start_sha}" ] && [ -n "${current_head_sha}" ] && [ "${session_start_sha}" != "${current_head_sha}" ]; then
+        deny "worktree-preflight (F-6, 2026-05-17, 4th sub-pattern): main-session HEAD has diverged from session-start state. session-start SHA: ${session_start_sha:0:7}; current HEAD: ${current_head_sha:0:7}. Builder auto-worktree spawns from session-START parent-branch state, NOT current HEAD — a stale-base dispatch would silently use the wrong tree. Options: (a) re-dispatch via 'general-purpose' agent type (no isolation hardcoding) + document the Builder-discipline trade-off in commit body, or (b) restart the Claude Code session so session-start SHA matches current HEAD, or (c) PF_BYPASS=worktree-preflight if intentional." "worktree-preflight"
+      fi
     else
       log_bypass "worktree-preflight" "explicit bypass"
     fi
@@ -247,6 +261,124 @@ check_active_gates_for_agent_dispatch() {
       log_bypass "builder-execute-verb-scope" "explicit bypass"
     fi
   fi
+}
+
+# check_file_scope_intersection
+# F-4 (2026-05-17, v2.5.0 PR-9) — File-scope intersection check for Agent dispatch.
+#
+# When the new dispatch's scope_read intersects an in-flight agent's scope_write,
+# the new dispatch reads stale or partial state. Block until producer completes.
+#
+# Parsing: looks for "scope_write: <paths>" and "scope_read: <paths>" lines in the
+# agent prompt. Paths may be comma-separated or single. Missing declarations →
+# advisory log + allow (graceful degradation; pre-v2.5.0 agent prompts don't
+# declare scope, so absence is the common case until agents are updated).
+#
+# In-flight detection: looks at .framework-state/active-agents.jsonl events from
+# the last 30 minutes (configurable). Start events without a matching stop event
+# from subagent-stop hook are considered in-flight. Time-window heuristic — not
+# perfect correlation, accepts some false-positive blocking in exchange for
+# zero-dependency implementation. v2.5.1 follow-up may refine with explicit
+# agent_id correlation.
+check_file_scope_intersection() {
+  [ ! -f "${ACTIVE_AGENTS:-${STATE_DIR}/active-agents.jsonl}" ] && return 0
+  [ "${PF_BYPASS:-}" = "file-scope-intersection" ] && { log_bypass "file-scope-intersection" "explicit bypass"; return 0; }
+
+  local active_agents_file="${STATE_DIR}/active-agents.jsonl"
+  local new_scope_read
+  new_scope_read=$(printf '%s' "${AGENT_PROMPT}" | grep -oE 'scope_read:[[:space:]]*[^\n]+' | sed 's/^scope_read:[[:space:]]*//' | head -1 | tr -d '[]' || echo "")
+  local new_scope_write
+  new_scope_write=$(printf '%s' "${AGENT_PROMPT}" | grep -oE 'scope_write:[[:space:]]*[^\n]+' | sed 's/^scope_write:[[:space:]]*//' | head -1 | tr -d '[]' || echo "")
+
+  # Graceful degradation: if no scope declarations in this dispatch, skip the check.
+  # Pre-v2.5.0 agent prompts don't declare scope; we allow them through. v2.5.1+
+  # follow-up PRs will add scope declarations to all 12 agent prompts, at which
+  # point this graceful-degradation branch becomes the exception rather than the
+  # default. For now: log the absence for observability.
+  if [ -z "${new_scope_read}" ] && [ -z "${new_scope_write}" ]; then
+    printf '{"timestamp":"%s","event":"file_scope_intersection_skipped","subagent_type":"%s","reason":"no_scope_declarations"}\n' \
+      "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "${SUBAGENT_TYPE:-unknown}" >> "${STATE_DIR}/trigger-audit.jsonl" 2>/dev/null || true
+    return 0
+  fi
+
+  # Check intersection with in-flight agents' scope_write.
+  # In-flight window: last 30 minutes.
+  local now_epoch
+  now_epoch=$(date +%s)
+  local window_start_epoch=$((now_epoch - 1800))
+
+  # Build a list of in-flight scope_write paths (one per line)
+  local in_flight_writes
+  in_flight_writes=$(
+    awk -v window_start="${window_start_epoch}" '
+      /"event":"start"/ {
+        # Extract started_at_epoch
+        match($0, /"started_at_epoch":[0-9]+/)
+        if (RSTART > 0) {
+          epoch_str = substr($0, RSTART, RLENGTH)
+          sub(/.*:/, "", epoch_str)
+          if (epoch_str + 0 >= window_start) {
+            # Extract scope_write field
+            match($0, /"scope_write":"[^"]*"/)
+            if (RSTART > 0) {
+              sw_str = substr($0, RSTART, RLENGTH)
+              sub(/"scope_write":"/, "", sw_str)
+              sub(/"$/, "", sw_str)
+              if (length(sw_str) > 0) print sw_str
+            }
+          }
+        }
+      }
+    ' "${active_agents_file}" 2>/dev/null || echo ""
+  )
+
+  if [ -z "${in_flight_writes}" ]; then
+    return 0    # nothing in flight; no intersection possible
+  fi
+
+  # Check whether any in-flight scope_write path appears in the new scope_read.
+  # Simple substring match — robust to comma vs newline separators.
+  local conflict_path=""
+  while IFS= read -r write_path; do
+    [ -z "${write_path}" ] && continue
+    # Trim whitespace and try each comma-separated item
+    local trimmed
+    trimmed=$(printf '%s' "${write_path}" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | tr ',' '\n')
+    while IFS= read -r single_path; do
+      single_path=$(printf '%s' "${single_path}" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+      [ -z "${single_path}" ] && continue
+      if printf '%s' "${new_scope_read}" | grep -qF "${single_path}"; then
+        conflict_path="${single_path}"
+        break 2
+      fi
+    done <<< "${trimmed}"
+  done <<< "${in_flight_writes}"
+
+  if [ -n "${conflict_path}" ]; then
+    deny "file-scope-intersection (F-4, 2026-05-17, v2.5.0 PR-9): an in-flight sub-agent has declared scope_write on '${conflict_path}', and the new dispatch's scope_read intersects that path. Reading mid-edit produces stale or partial state — wait for the producer to complete before dispatching the consumer. Per cycle-selection skill Pattern A 'File-scope intersection rule.' Bypass: PF_BYPASS=file-scope-intersection if the producer-vs-consumer ordering is intentional (e.g., concurrent read-only audit on a doc that may be mid-revision)." "file-scope-intersection"
+  fi
+}
+
+# record_agent_start
+# F-4 (2026-05-17, v2.5.0 PR-9) — Record this Agent dispatch's scope declarations
+# in .framework-state/active-agents.jsonl so future intersection checks see it
+# as in-flight. Paired with hooks/subagent-stop which records the "stop" event
+# (PR-10 of v2.5.0).
+record_agent_start() {
+  local active_agents_file="${STATE_DIR}/active-agents.jsonl"
+  mkdir -p "${STATE_DIR}" 2>/dev/null || true
+  [ -f "${active_agents_file}" ] || touch "${active_agents_file}"
+
+  local now_epoch now_iso
+  now_epoch=$(date +%s)
+  now_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  local scope_write_str scope_read_str
+  scope_write_str=$(printf '%s' "${AGENT_PROMPT}" | grep -oE 'scope_write:[[:space:]]*[^\n]+' | sed 's/^scope_write:[[:space:]]*//' | head -1 | tr -d '"' || echo "")
+  scope_read_str=$(printf '%s' "${AGENT_PROMPT}" | grep -oE 'scope_read:[[:space:]]*[^\n]+' | sed 's/^scope_read:[[:space:]]*//' | head -1 | tr -d '"' || echo "")
+
+  printf '{"started_at":"%s","started_at_epoch":%d,"subagent_type":"%s","scope_write":"%s","scope_read":"%s","event":"start"}\n' \
+    "${now_iso}" "${now_epoch}" "${SUBAGENT_TYPE:-unknown}" "${scope_write_str}" "${scope_read_str}" >> "${active_agents_file}"
 }
 
 # check_active_gates_for_file_write
@@ -330,6 +462,8 @@ if [ "${TOOL_NAME}" = "Agent" ] || [ "${TOOL_NAME}" = "Task" ]; then
   log_invocation "agent" "${SUBAGENT_TYPE}"
   reset_read_count
   check_active_gates_for_agent_dispatch
+  check_file_scope_intersection   # F-4 (2026-05-17, v2.5.0 PR-9) — see function definition below
+  record_agent_start              # F-4 (2026-05-17, v2.5.0 PR-9) — track this dispatch for future intersection checks
   allow
 fi
 

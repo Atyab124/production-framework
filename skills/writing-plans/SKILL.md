@@ -18,6 +18,19 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 **Save plans to:** `docs/superpowers/plans/YYYY-MM-DD-<feature-name>.md`
 - (User preferences for plan location override this default)
 
+## Dispatch model — agent type selection (F-5, 2026-05-17)
+
+When the CTO dispatches this skill via the Agent tool, the agent type matters: this skill instructs the producer to write a plan file to disk, which means the producer needs Write tool access.
+
+**Prefer:**
+- `production-framework:architect` — has Write enabled by contract; native fit for plan-authoring.
+- `general-purpose` — has Write enabled; valid fallback when an architect dispatch isn't appropriate.
+
+**Do NOT use:**
+- The built-in `Plan` agent type — it is read-only by contract (no Edit/Write/NotebookEdit per the Claude Code agent tool list). A `Plan` dispatch will produce the full plan content in its response BUT will return DONE_WITH_CONCERNS noting it could not Write — costing 15+ minutes of agent-time on content that the parent then has to re-materialize via a different agent. The `Plan` agent's description was historically ambiguous about this; FEEDBACK F-5 (2026-05-17) documents the empirical failure mode.
+
+If a parent agent has already dispatched the `Plan` type by mistake and gotten back content-without-file, the parent persists the inline content via Write directly — no need to re-dispatch.
+
 ## Scope Check
 
 If the spec covers multiple independent subsystems, it should have been broken into sub-project specs during brainstorming. If it wasn't, suggest breaking this into separate plans — one per subsystem. Each plan should produce working, testable software on its own.
@@ -59,6 +72,36 @@ This structure informs the task decomposition. Each task should produce self-con
 
 ---
 ```
+
+## Pre-emit existence checks (F-7, 2026-05-17)
+
+Before writing any task that imports a library, calls an RPC, asserts a schema table, or invokes a test runner, **verify the target exists in the actual codebase**. Verification is EXISTENCE only — does the symbol/file/dep exist? — never shape (function bodies, call signatures, type shapes remain Builder's responsibility per the mechanical-vs-design distinction).
+
+### What to check before emitting a task
+
+| Target in task | Verify by |
+|---|---|
+| Library import (`@scope/package`, `package-name`) | `git show HEAD:package.json \| grep <package>` (or `requirements.txt`, `Cargo.toml`, `go.mod` per project) |
+| RPC call (e.g. Supabase `.rpc("foo")`, internal RPC catalog) | grep `CREATE FUNCTION foo` in `supabase/migrations/*.sql` or equivalent DB-function catalog |
+| Schema table (e.g. `from('work_items')`, `db.work_items`) | grep `CREATE TABLE work_items` in migrations OR `information_schema.tables` |
+| Test runner (`vitest`, `pytest`, `node --test`) | grep the runner name in test config or `package.json` scripts |
+| Type import from internal module | grep the type name at its declared source path |
+
+If the target is absent, **escalate to Open Questions** — do NOT silently emit a task that depends on a missing dependency, hoping the Builder will install it. Builder discipline (FEEDBACK STRENGTH-2 + STRENGTH-3, 2026-05-17) correctly returns NEEDS_CONTEXT on plan-vs-code mismatches; an under-disciplined producer that "auto-fixes" by silently installing libraries un-masks the Builder safety net.
+
+### Adoption-plan handshake (F-7, 2026-05-17)
+
+If a dependency is absent from the codebase BUT exists in an in-flight adoption plan (search `docs/plans/*` + `docs/audits/*` for the dep name), do NOT silently assume the dep will be present at Builder dispatch time. The presence of an adoption plan means the codebase has decided HOW that dep will be wired — silently `pnpm add` from within an unrelated plan preempts that decision and creates duplication debt.
+
+Surface as a CTO decision: "this plan would require adding library X; an adoption plan exists at `docs/plans/<adoption-plan>.md`. Options: (a) merge this plan's dep usage into the adoption plan's wiring, (b) defer the dep-using tasks until the adoption plan ships, (c) accept the duplication with a documented commit-body rationale."
+
+### Why existence-only, not shape
+
+The framework's Builder discipline catches shape bugs at execution time — Builder runs named test commands, captures failure output, identifies mechanical defects (wrong RPC argument shape, missing `onConflict`, regex collision, Luhn checksum), and either corrects them inline (mechanical) or escalates via NEEDS_CONTEXT (design). FEEDBACK STRENGTH-2 documents 9 mechanical-bug catches across one session; STRENGTH-3 documents 3 zero-false-positive NEEDS_CONTEXT escalations.
+
+If `writing-plans` were to claim shape verification ("I verified `users.email` has type `text`"), the Builder's catch rate collapses: Builder would treat the plan's claim as authoritative and stop probing. Existence checks close the F-7 bug class (TanStack Query imported without `package.json` entry) at plan time; shape verification would erode the Builder safety net for the other 8 STRENGTH-2 bug shapes.
+
+⚠️  **Anti-pattern:** *"I'll verify the function signature too while I'm checking existence."* Don't. Existence ≠ shape. Builder's job is to catch shape bugs; yours is to verify the symbol exists. The bright-line keeps the two disciplines composing.
 
 ## Task Structure
 

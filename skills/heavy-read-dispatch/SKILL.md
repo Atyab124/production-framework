@@ -44,6 +44,39 @@ Main session does not read >3 files of source material to produce a single deliv
 | Edit one file you've already located | Direct read; trigger does not match |
 | Tier 3 architecture step | Architect (pass 1) drafts design + Open Questions for Researcher; dispatch researcher to do the heavy enterprise reads and answer those questions; Architect (pass 2, finalize) reads the researcher's summary to lock the plan. Researcher absorbs the heavy-read context, architect stays lean. (Three-pass; resolves F-V23.) |
 
+## Known dispatch blockers (perm-fix B, 2026-05-17)
+
+Three blockers will silently bite when a Researcher subagent runs against external sources. Bake these route-arounds into the dispatch prompt so the subagent doesn't burn its budget rediscovering them.
+
+### 1. Anthropic citations — prefer local manifest
+
+`anthropic.com` was previously on Claude Code's built-in WebFetch blocklist (now bypass-able via `skipWebFetchPreflight: true` in user settings). Even when WebFetch works, the local manifest at `docs/research/sp-anthropic-citation-manifest.md` already has verbatim passages from the canonical Anthropic essays:
+
+- §2.17 — *Effective context engineering for AI agents* (5 passages: isolated context windows, file artifacts, CLAUDE.md preloading, smallest-high-signal-tokens)
+- Other §§ — *Building Effective AI Agents*, *How we built our multi-agent research system*
+
+**Brief subagents to read the manifest BEFORE WebFetching anthropic.com.** Save the WebFetch call for passages not already captured locally.
+
+### 2. JS-rendered SPAs — substitute raw GitHub markdown
+
+Many modern docs sites render content client-side via JavaScript. WebFetch sees only the bootstrap HTML (`"Redirecting..."`). Known offenders include `langchain-ai.github.io`, `openai.github.io`. Substitute:
+
+- `https://raw.githubusercontent.com/<org>/<repo>/main/docs/.../<page>.md`
+- `https://raw.githubusercontent.com/<org>/<repo>/main/README.md`
+- `https://raw.githubusercontent.com/<org>/<repo>/main/libs/<package>/README.md` (monorepo)
+
+The subagent should document the SPA fallback in its methodology disclosure.
+
+### 3. Subagent Write to durable paths can be permission-denied
+
+Subagent permission inheritance does not propagate `Write(path/**)` allow rules reliably (cause not yet diagnosed; durable across the v2.5.0 release window). The route-around:
+
+- Subagent returns final document content **inline in its last message** rather than relying on Write.
+- Main session writes the file from the inline content.
+- The dispatch prompt should explicitly say: "If Write fails, return NEEDS_CONTEXT with the full content inline; do not retry-loop."
+
+This pattern keeps the heavy-read-dispatch discipline intact (subagent absorbs the reads) while routing around the Write hole.
+
 ## Composability
 
 - Composes with `tier-selection` — orthogonal axes (execution rigor vs. context discipline).

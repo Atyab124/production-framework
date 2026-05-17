@@ -73,6 +73,18 @@ Per-phase mapping:
 
 Citations: MetaGPT iterative-refinement loop (https://arxiv.org/html/2308.00352v6 §3.2-3.3), ChatDev review-revise loop (https://arxiv.org/html/2307.07924v5), Anthropic OODA loop (*How we built our multi-agent research system*, Jun 2025). The pattern resolves F-V23 (parallel-without-feedback idiosyncrasy).
 
+### File-scope intersection rule (F-4, 2026-05-17)
+
+Pattern A's producer-edit-then-consumer-audit sequencing depends on the consumer reading the **finalized** producer output. If the CTO dispatches the consumer concurrently with the producer's pass 1 (parallel rather than sequential), the consumer reads stale or partial state — and any consumer finding built on that stale evidence will not reflect the producer's final version. The bad outcome (producer invalidates a citation the consumer cited) only materializes when the producer actually changes the evidence basis — but the architecture admits the silent-staleness window whenever it could happen.
+
+**The rule:** when a producer agent has an outstanding edit on a shared substrate file (e.g., Researcher editing `docs/research/<topic>.md`, Database Engineer editing `docs/database/<feature>.md`), no concurrent dispatch may declare that file in its required-read scope. Sequence the consumer AFTER the producer's edit completes.
+
+**Mechanism (v2.5.0 PR-9):** every Agent dispatch declares `scope_write[]` (paths the agent will write) and `scope_read[]` (paths the agent will read) at the dispatch prompt level. The pre-tool-use hook reads `.framework-state/active-agents.jsonl` (which tracks in-flight subagents and their declared scopes). On a new dispatch, the hook computes the intersection of the new dispatch's `scope_read[]` with each in-flight agent's `scope_write[]` — non-empty intersection → BLOCKED with "upstream producer running on `<path>`; wait for completion before dispatching consumer."
+
+**Why this matters (F-4 empirical, 2026-05-17):** a session dispatched Researcher citation-freshness in parallel with Security/Compliance pass 1. Security read `docs/research/ai-brain-rag-patterns.md` while Researcher was concurrently adding `last_verified` fields. The bad outcome didn't materialize that round (Researcher's verification kept all citations valid, by luck) — but the framework cannot rely on luck for evidence-basis integrity. The file-scope intersection rule closes the window structurally.
+
+**Citation:** Anthropic *Effective context engineering for AI agents* — "Each subagent operates with an isolated context window... Agents can save information from tool call results as artifacts, making it available to other agents and users... This design is intentional: it prevents cross-contamination between different phases of the workflow." The framework's `scope_write[]` / `scope_read[]` arrays are the runtime expression of this principle at dispatch time. Enterprise analogs: CrewAI `Task.context=[...]` + `Task.output_file` (literal fit, filesystem substrate); LangGraph `StateGraph` + TypedDict state (structural fit, in-graph state); AutoGen `TypeSubscription` (principle fit, topic-routed bus). See `docs/research/file-scope-manifest-citations.md` for full citation block.
+
 ### Build Cycle
 **Trigger:** new behavior. **Graph:**
 1. **product-manager** → spec

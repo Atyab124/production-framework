@@ -504,16 +504,18 @@ trigger_class: pre_tool_use
 trigger:
   tool: "Edit|Write|Bash"
   state_when:
-    - "user_prompt_was_task_shape (build/fix/refactor/audit/optimize/migrate)"
+    - "user_prompt_was_task_shape (build/fix/refactor/audit/optimize/migrate/implement/add/create/deploy)"
     - "AND tier_selection_invoked_at < last_user_prompt_at"
+    - "AND input_source NOT IN (system_notification, task_notification, system_reminder)"   # F-8 (2026-05-17) — system events are not user task-shape prompts (implementation: user-prompt-submit hook filter)
+    - "AND prompt is NOT pure continuation directive (yes/ok/continue/keep going/proceed/sure/do it/carry on/do as you recommend)"   # F-2 (2026-05-17) — continuation directives don't signal new task; per-session cache effect via user-prompt-submit filter (last_user_prompt_at not advanced on continuations, so timestamp comparison keeps passing)
 severity: standard
-enforcement_mode: block        # current default; project can downgrade to warn
+enforcement_mode: block        # per D-2 decision (2026-05-17): predicate refine + cache, NOT warn-demotion. Gate remains block-tier; the predicate is tightened so it stops over-firing on continuations + system events.
 max_per_session: null
 justification_required: true
 bypass_env: PF_BYPASS=tier-selection
-message: "tier-selection has not been invoked since the latest user prompt. Invoke production-framework:tier-selection before Edit/Write/Bash on task-shape prompts."
+message: "tier-selection has not been invoked since the latest substantive user prompt (task-shape verb + not a continuation + not a system event). Invoke production-framework:tier-selection before Edit/Write/Bash on task-shape prompts."
 owner: tier-selection + cto-mode
-source: hooks/pre-tool-use Gate 1; ADR-002 D-A bundle
+source: hooks/pre-tool-use Gate 1; hooks/user-prompt-submit (input filter); ADR-002 D-A bundle; FEEDBACK F-8 + F-2 (2026-05-17) — input-source filter + continuation-prompt filter
 citation:
   - "Anthropic Building Effective AI Agents — Routing pattern"
   - "ITIL 4 Standard Change pre-approval"
@@ -584,18 +586,20 @@ trigger:
   state_when:
     - "preceding_turn dispatched >=2 sub-agents in parallel"
     - "AND NOT docs/reconciliation/<wave>-<UTC>.md exists for this wave"
+    - "AND .framework-state/pending-reconciliation.jsonl has an unresolved entry (written by SubagentStop hook on >=2 parallel returns within 10-min window; see PR-10)"   # F-9 (2026-05-17) — composes with PR-10 auto-load mechanism: SubagentStop hook flags the wave + injects the skill body; this gate blocks the next consuming dispatch until reconciliation doc lands
 severity: standard
-enforcement_mode: warn
-max_per_session: 3
-justification_required: false
+enforcement_mode: block        # F-9 escalation (2026-05-17): warn-tier was structurally undiscoverable per FEEDBACK F-9 (silent skip = silent override of minority findings = the F-4 transient inconsistency window). Now blocks until reconciliation doc materializes. Warn-tier max_per_session pattern removed.
+max_per_session: null
+justification_required: true
 bypass_env: PF_BYPASS=parallel-reconciliation
-message: "≥2 parallel agents returned but no reconciliation doc produced. Silent override of minority findings is the failure mode this gate prevents."
-owner: parallel-reconciliation
-source: skills/parallel-reconciliation/SKILL.md HARD-GATE lines 14-18
+message: "≥2 parallel agents returned and SubagentStop hook flagged this dispatch wave as pending reconciliation. The parallel-reconciliation skill body has been auto-loaded into your context via post-tool-use hook injection — run it to produce docs/reconciliation/<wave>-<UTC>.md before consuming the parallel outputs. Silent override of minority findings is the failure mode this gate prevents; structurally-undiscoverable warn-tier was the F-9 root cause."
+owner: parallel-reconciliation + cto-mode
+source: skills/parallel-reconciliation/SKILL.md HARD-GATE lines 14-18; FEEDBACK F-9 (2026-05-17) — warn→block escalation + SubagentStop hook composition
 citation:
   - "LangGraph supervisor/summarizer pattern"
   - "ChatDev phase-end convergence"
   - "Anthropic Multi-Agent Research System — lead-agent synthesis"
+  - "F-9 empirical (TaskIt session 2026-05-17) — warn-tier silent-skip caused F-4 staleness window"
 ```
 
 ### C-05 — find-similar-implementations before new primitive
@@ -862,14 +866,18 @@ trigger:
   state_when:
     - "STACK-PATTERNS or memory binds research to specific anchor"
     - "AND NOT docs/research/<topic>.md contains browser_navigate('<anchor>') OR browser_take_screenshot('<anchor>')"
+    - "AND NOT research_topic_keywords match (database|queue|retrieval algorithm|observability|infrastructure|encryption|scheduling|RAG|embeddings|cache|migration|RPC|hook|gate|index|partition|replication)"   # F-3 (2026-05-17) — technical/architectural research has zero signal from UX-anchor browsing
+bound_target:                                                                                                   # F-3 (2026-05-17) — names WHAT the anchor is, so the researcher knows browser_navigate goes to this domain AND not elsewhere (composes with F-11 tool-channel discipline in agents/researcher.md)
+  domain: "<configured anchor domain per STACK-PATTERNS UX-binding row>"
+  scope: authenticated_ui_exploration
 severity: standard
 enforcement_mode: warn
 max_per_session: 1
 justification_required: true   # if WebFetch denied, must tag INSUFFICIENT — visual verification blocked
 bypass_env: PF_BYPASS=researcher-anchor-visual
-message: "Project binds research to specific anchor (e.g., 'Asana PRIMARY'). Researcher must attempt browser_navigate + browser_take_screenshot, OR tag section INSUFFICIENT — visual verification blocked."
+message: "Project binds research to specific UX anchor (e.g., 'Asana PRIMARY'). When research scope is UX/UI/feature-study, Researcher must browser_navigate(bound_target.domain) + browser_take_screenshot OR tag section INSUFFICIENT. Technical/architectural research (database, queue, RAG, infrastructure) is EXCLUDED — UX-anchor browsing yields zero signal for backend patterns."
 owner: researcher + enterprise-research-first
-source: FEEDBACK F-V31 (2026-05-17)
+source: FEEDBACK F-V31 (2026-05-17), F-3 (2026-05-17) — predicate too broad on technical topics
 citation:
   - "F-V31 empirical (TaskIt research lanes 2026-05-17)"
   - "Anthropic source-quality heuristic (Jun 2025)"
@@ -939,16 +947,17 @@ trigger:
   state_when:
     - "tool_input.subagent_type == production-framework:builder"
     - "AND production-framework:builder has isolation: worktree in agent definition"
-    - "AND (git status --porcelain returns non-empty OR no pinned SHA in dispatch)"
+    - "AND (git status --porcelain returns non-empty OR no pinned SHA in dispatch OR session-start-branch-SHA != main-session-current-HEAD-SHA)"   # F-6 (2026-05-17) — 4th sub-pattern: stale parent-branch base. After SessionStart, if main session does `git checkout` to another branch + commits, subsequent Builder worktree spawns from session-START parent-branch state instead of current HEAD. SessionStart hook captures branch ref + SHA into .framework-state/session.json; pre-tool-use reads + compares.
 severity: critical
 enforcement_mode: block
 justification_required: true
 bypass_env: PF_BYPASS=worktree-preflight
-message: "Builder worktree dispatch without committed inputs or pinned SHA. WORKTREE family (F-V10/11/21/25/27) recurs 100% on multi-Builder waves with shifting parent. Commit design artifacts; pin SHA via git rev-parse HEAD; pass to dispatch."
+message: "Builder worktree dispatch fails pre-flight: (a) dirty `git status`, (b) no pinned SHA in dispatch, or (c) parent-branch base is stale relative to current main-session HEAD (F-6). WORKTREE family (F-V10/11/21/25/27) + F-6 stale-base together recur 100% on the relevant triggers. Commit design artifacts; pin SHA via `git rev-parse HEAD` at dispatch time; pass BASE_SHA to dispatch. If branch-switched mid-session, verify session-start-SHA matches HEAD before dispatching Builder."
 owner: cto-mode + builder
-source: FEEDBACK WORKTREE consolidated (2026-05-17)
+source: FEEDBACK WORKTREE consolidated (2026-05-17); F-6 (2026-05-17) — 4th sub-pattern (stale parent-branch base after mid-session branch switch)
 citation:
   - "F-V10/11/21/25/27 empirical (TaskIt 2026-05-15+)"
+  - "F-6 empirical (TaskIt session 2026-05-17) — Builder Lane C stale-base dispatch"
   - "Aider repo-state-aware editing"
   - "GitHub Codespaces worktree semantics"
 ```
