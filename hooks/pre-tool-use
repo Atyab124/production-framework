@@ -1,58 +1,47 @@
 #!/usr/bin/env bash
 # =============================================================================
-# pre-tool-use.sh — D-A hook bundle (5 gates per ADR-002)
+# pre-tool-use — Production Framework v2.4.0 hook
 #
-# PURPOSE:
-#   Gates Edit / Write / Bash tool calls on prerequisite skill invocation OR
-#   bypass-escape-hatch presence. Closes Cluster C1 (13 audit items) by
-#   replicating PF v1 Rule #43 machine-enforcement pattern (per Item 41
-#   STRENGTH evidence) for tier-selection, destructive-ops, phase-break,
-#   critical-finding-blocks-next-phase, and dep-add disciplines.
+# Reads .framework-state/active-gates.yaml and enforces the active set of
+# HARD-GATEs per the configure-project-gates skill's output.
 #
-# CONTRACT:
-#   - Receives PreToolUse event JSON via stdin (Claude Code hook contract)
-#   - Outputs permissionDecision JSON ('allow' / 'deny') with reason
-#   - Uses permissionDecision: "deny" (NOT exit-code-2 — known CC bugs
-#     #13744, #36071, #40580 make exit-2 unreliable on Edit/Write matchers
-#     per R-A research)
+# Three layers of enforcement:
+#   1. Universal floor (hardcoded, always-active) — pre_tool_use class only:
+#        heavy-read-dispatch, no-pii-in-logs, data-loss-disclosure
+#   2. Legacy fixed gates (preserved from v2.0+):
+#        tier-selection, destructive-ops, dep-add
+#   3. Config-driven configurable gates from .framework-state/active-gates.yaml:
+#        Agent/Task gates: worktree-preflight, builder-execute-verb-scope
+#        Write gates: find-similar-implementations
 #
-# 5 GATES (per ADR-002):
-#   1. tier-selection — task-shape prompts + Edit/Write/Bash
-#   2. destructive-ops — Bash matching destructive-verb regex
-#   3. phase-break — Write src/** when no current-phase marker
-#   4. critical-finding-blocks-next-phase — Write src/** when CRITICAL findings open
-#   5. dep-add — Bash matching dep-install regex without Tool-Selection-Chain prefix
+# Every deny + every bypass writes one JSON line to .framework-state/decision-log.jsonl
 #
-# BYPASS GRAMMAR (three-tier):
-#   - PF_BYPASS=<rule-id>           per-rule, one tool call
-#   - PF_BYPASS_ALL=1 + PF_BYPASS_REASON  session-wide
-#   - .framework-state/PF_GATES_DISABLED  project-level kill switch
-#
-# All bypasses logged append-only to .framework-state/bypass-log.jsonl
-# (Post-Mortem agent mines this log for repeat-bypass patterns).
+# Three-tier bypass grammar (preserved):
+#   PF_BYPASS=<rule-id>                     per-rule
+#   PF_BYPASS_ALL=1 + PF_BYPASS_REASON      session-wide
+#   .framework-state/PF_GATES_DISABLED      kill switch
 # =============================================================================
 
 set -euo pipefail
 
-# Determine plugin + project roots
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 STATE_DIR="${PROJECT_DIR}/.framework-state"
 SESSION_FILE="${STATE_DIR}/session.json"
 BYPASS_LOG="${STATE_DIR}/bypass-log.jsonl"
+DECISION_LOG="${STATE_DIR}/decision-log.jsonl"
+ACTIVE_GATES="${STATE_DIR}/active-gates.yaml"
+WARN_COUNTS="${STATE_DIR}/warn-counts.json"
 KILL_SWITCH="${STATE_DIR}/PF_GATES_DISABLED"
 
-# Read PreToolUse event JSON from stdin
 INPUT=$(cat)
 
-# ---------------------------------------------------------------------------
-# Helper: detect Skill tool invocations of tier-selection / triage and
-# update the corresponding timestamp in session.json BEFORE applying gates.
-# This populates the state pre-tool-use.sh reads on subsequent Edit/Write/Bash.
-# ---------------------------------------------------------------------------
-update_skill_timestamp() {
-  local skill_field="$1"  # tier_selection_invoked_at | triage_invoked_at
+# =============================================================================
+# Helpers (defined before any tool-dispatch logic)
+# =============================================================================
+
+ensure_state_dir() {
   mkdir -p "${STATE_DIR}"
   if [ ! -f "${SESSION_FILE}" ]; then
     cat > "${SESSION_FILE}" <<EOF
@@ -60,95 +49,274 @@ update_skill_timestamp() {
   "session_started_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "tier_selection_invoked_at": "",
   "triage_invoked_at": "",
-  "last_user_prompt_at": ""
+  "last_user_prompt_at": "",
+  "read_count_current_deliverable": 0
 }
 EOF
   fi
+  [ -f "${WARN_COUNTS}" ] || echo '{}' > "${WARN_COUNTS}"
+}
+
+update_skill_timestamp() {
+  # HIGH-1 fix (QA findings 2026-05-17): if the field is missing from session.json
+  # (schema-incomplete file), sed does nothing silently. Detect-and-insert instead.
+  ensure_state_dir
+  local skill_field="$1"
   local now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   local tmp=$(mktemp)
-  sed -E "s/\"${skill_field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"${skill_field}\": \"${now}\"/" "${SESSION_FILE}" > "${tmp}"
+  if grep -q "\"${skill_field}\"" "${SESSION_FILE}" 2>/dev/null; then
+    # Field present: substitute
+    sed -E "s/\"${skill_field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"${skill_field}\": \"${now}\"/" "${SESSION_FILE}" > "${tmp}"
+  else
+    # Field missing: insert before closing brace (same pattern as warn_increment + increment_read_count)
+    sed -E "s/\\}\$/,\"${skill_field}\": \"${now}\"}/" "${SESSION_FILE}" > "${tmp}"
+  fi
   mv "${tmp}" "${SESSION_FILE}"
 }
 
-# ---------------------------------------------------------------------------
-# Helper: emit allow decision (pass-through)
-# ---------------------------------------------------------------------------
+increment_read_count() {
+  ensure_state_dir
+  local cur
+  cur=$(grep -o '"read_count_current_deliverable"[[:space:]]*:[[:space:]]*[0-9]*' "${SESSION_FILE}" 2>/dev/null | sed 's/.*: *//' || echo "0")
+  local new=$((cur + 1))
+  local tmp=$(mktemp)
+  if grep -q '"read_count_current_deliverable"' "${SESSION_FILE}" 2>/dev/null; then
+    sed -E "s/\"read_count_current_deliverable\"[[:space:]]*:[[:space:]]*[0-9]+/\"read_count_current_deliverable\": ${new}/" "${SESSION_FILE}" > "${tmp}"
+  else
+    # Insert the field if missing
+    sed -E "s/\\}$/,\"read_count_current_deliverable\": ${new}}/" "${SESSION_FILE}" > "${tmp}"
+  fi
+  mv "${tmp}" "${SESSION_FILE}"
+  echo "${new}"
+}
+
+reset_read_count() {
+  ensure_state_dir
+  local tmp=$(mktemp)
+  if grep -q '"read_count_current_deliverable"' "${SESSION_FILE}" 2>/dev/null; then
+    sed -E "s/\"read_count_current_deliverable\"[[:space:]]*:[[:space:]]*[0-9]+/\"read_count_current_deliverable\": 0/" "${SESSION_FILE}" > "${tmp}"
+    mv "${tmp}" "${SESSION_FILE}"
+  fi
+}
+
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  printf '%s' "$s"
+}
+
+log_decision() {
+  ensure_state_dir
+  local decision="$1"
+  local gate_id="$2"
+  local reason
+  reason="$(json_escape "${3:-}")"
+  local ts
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  printf '{"timestamp":"%s","decision":"%s","gate":"%s","reason":"%s","tool":"%s"}\n' \
+    "$ts" "$decision" "$gate_id" "$reason" "${TOOL_NAME:-}" >> "${DECISION_LOG}"
+}
+
+log_bypass() {
+  ensure_state_dir
+  local rule_id="$1"
+  local reason="${2:-}"
+  local ts
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  printf '{"timestamp":"%s","rule":"%s","reason":"%s"}\n' "$ts" "$rule_id" "$(json_escape "${reason}")" >> "${BYPASS_LOG}"
+  log_decision "bypass" "${rule_id}" "${reason}"
+}
+
+log_invocation() {
+  ensure_state_dir
+  local event_type="$1"
+  local name="$2"
+  local ts
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  printf '{"timestamp":"%s","event":"%s","name":"%s"}\n' "$ts" "$event_type" "$name" >> "${STATE_DIR}/trigger-audit.jsonl"
+}
+
 allow() {
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}\n'
   exit 0
 }
 
-# ---------------------------------------------------------------------------
-# Helper: emit deny decision with reason; log to bypass-log if bypass used
-# ---------------------------------------------------------------------------
 deny() {
-  local reason="$1"
-  # Escape JSON
-  reason="${reason//\\/\\\\}"
-  reason="${reason//\"/\\\"}"
-  reason="${reason//$'\n'/\\n}"
+  local reason
+  reason="$(json_escape "$1")"
+  local gate_id="${2:-unknown}"
+  log_decision "deny" "${gate_id}" "$1"
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$reason"
   exit 0
 }
 
-log_bypass() {
-  local rule_id="$1"
-  local reason="${2:-}"
-  mkdir -p "${STATE_DIR}"
-  local ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  printf '{"timestamp":"%s","rule":"%s","reason":"%s","payload":%s}\n' "$ts" "$rule_id" "$reason" "$INPUT" >> "${BYPASS_LOG}"
+# Increment warn count for a gate; print new count
+warn_increment() {
+  ensure_state_dir
+  local gate_id="$1"
+  local current
+  current=$(grep -o "\"${gate_id}\"[[:space:]]*:[[:space:]]*[0-9]*" "${WARN_COUNTS}" 2>/dev/null | sed 's/.*: *//' || echo "0")
+  local new=$((current + 1))
+  if grep -q "\"${gate_id}\"" "${WARN_COUNTS}" 2>/dev/null; then
+    local tmp=$(mktemp)
+    sed -E "s/\"${gate_id}\"[[:space:]]*:[[:space:]]*[0-9]+/\"${gate_id}\": ${new}/" "${WARN_COUNTS}" > "${tmp}"
+    mv "${tmp}" "${WARN_COUNTS}"
+  else
+    # Insert. Handle "{}" empty case + "{...}" non-empty case
+    if [ "$(cat "${WARN_COUNTS}")" = "{}" ]; then
+      echo "{\"${gate_id}\": ${new}}" > "${WARN_COUNTS}"
+    else
+      local tmp=$(mktemp)
+      sed -E "s/\\}$/,\"${gate_id}\": ${new}}/" "${WARN_COUNTS}" > "${tmp}"
+      mv "${tmp}" "${WARN_COUNTS}"
+    fi
+  fi
+  echo "${new}"
 }
 
-# ---------------------------------------------------------------------------
-# Helper: trigger-audit instrumentation (added v2.0.3)
-# Logs every Skill + Agent invocation to .framework-state/trigger-audit.jsonl.
-# Cross-reference with user-prompt-submit prompt_received entries to audit
-# trigger fidelity ("did the right skill fire for prompt N?"). Append-only,
-# narrow payload (event + name) — never includes Edit/Write/Bash bodies.
-# ---------------------------------------------------------------------------
-log_invocation() {
-  local event_type="$1"
-  local name="$2"
-  mkdir -p "${STATE_DIR}"
-  local ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  printf '{"timestamp":"%s","event":"%s","name":"%s"}\n' "$ts" "$event_type" "$name" >> "${STATE_DIR}/trigger-audit.jsonl"
+# warn_handle gate_id enforcement_mode max_per_session message
+# - block → deny (or bypass)
+# - warn → increment count; if exceeds max, escalate to block
+# - audit → log only
+warn_handle() {
+  local gate_id="$1"
+  local mode="$2"
+  local max="$3"
+  local message="$4"
+
+  if [ "${PF_BYPASS:-}" = "${gate_id}" ]; then
+    log_bypass "${gate_id}" "explicit bypass"
+    return 0
+  fi
+
+  case "${mode}" in
+    block)
+      deny "${message}" "${gate_id}"
+      ;;
+    warn)
+      local count
+      count=$(warn_increment "${gate_id}")
+      if [ -n "${max}" ] && [ "${max}" != "null" ] && [ "${count}" -gt "${max}" ]; then
+        deny "${message} [Escalated to block: ${count} warns this session exceeds max_per_session=${max}.]" "${gate_id}"
+      fi
+      log_decision "warn" "${gate_id}" "${message} (count: ${count}/${max:-∞})"
+      ;;
+    audit)
+      log_decision "audit" "${gate_id}" "${message}"
+      ;;
+  esac
+  return 0
 }
 
-# ---------------------------------------------------------------------------
-# Project-level kill switch — bypass everything
-# ---------------------------------------------------------------------------
+# check_active_gates_for_agent_dispatch
+# Called when TOOL_NAME == Agent or Task.
+# Enforces worktree-preflight + builder-execute-verb-scope IFF listed in active-gates.yaml.
+check_active_gates_for_agent_dispatch() {
+  [ ! -f "${ACTIVE_GATES}" ] && return 0
+  [ "${SUBAGENT_TYPE}" != "production-framework:builder" ] && return 0
+
+  # worktree-preflight
+  if grep -q "id: worktree-preflight" "${ACTIVE_GATES}" 2>/dev/null; then
+    if [ "${PF_BYPASS:-}" != "worktree-preflight" ]; then
+      local git_dirty=""
+      git_dirty=$(cd "${PROJECT_DIR}" && git status --porcelain 2>/dev/null | head -1 || echo "")
+      local has_pinned_sha=0
+      if printf '%s' "${AGENT_PROMPT}" | grep -qE '(BASE_SHA|pinned SHA|HEAD=[a-f0-9]{7,}|git rev-parse HEAD)'; then
+        has_pinned_sha=1
+      fi
+      if [ -n "${git_dirty}" ] || [ "${has_pinned_sha}" -eq 0 ]; then
+        deny "worktree-preflight (FEEDBACK WORKTREE consolidates F-V10/11/21/25/27): Builder worktree dispatch needs (a) clean git status AND (b) BASE_SHA / pinned-SHA in dispatch prompt. Currently git status: ${git_dirty:+dirty}${git_dirty:-clean}; pinned SHA detected: ${has_pinned_sha}. Commit design artifacts first; pass BASE_SHA via 'git rev-parse HEAD'. Bypass: PF_BYPASS=worktree-preflight." "worktree-preflight"
+      fi
+    else
+      log_bypass "worktree-preflight" "explicit bypass"
+    fi
+  fi
+
+  # builder-execute-verb-scope
+  if grep -q "id: builder-execute-verb-scope" "${ACTIVE_GATES}" 2>/dev/null; then
+    if [ "${PF_BYPASS:-}" != "builder-execute-verb-scope" ]; then
+      if ! printf '%s' "${AGENT_PROMPT}" | grep -qE '^EXECUTE|\\nEXECUTE'; then
+        deny "builder-execute-verb-scope (F-V7, ~83% Sonnet recurrence): Builder dispatch must open with the EXECUTE verb (uppercase). Ambiguous 'execute the plan' produces empty-diff silent failures. Bypass: PF_BYPASS=builder-execute-verb-scope." "builder-execute-verb-scope"
+      fi
+      if ! printf '%s' "${AGENT_PROMPT}" | grep -qE 'scope:[[:space:]]*(code|verdict|analysis|docs)'; then
+        deny "builder-execute-verb-scope (F-V7): Builder dispatch must declare 'scope: (code|verdict|analysis|docs)'. Bypass: PF_BYPASS=builder-execute-verb-scope." "builder-execute-verb-scope"
+      fi
+    else
+      log_bypass "builder-execute-verb-scope" "explicit bypass"
+    fi
+  fi
+}
+
+# check_active_gates_for_file_write
+# Called for Edit/Write after the legacy tier-selection gate passes.
+# Enforces find-similar-implementations IFF listed.
+check_active_gates_for_file_write() {
+  [ ! -f "${ACTIVE_GATES}" ] && return 0
+
+  # find-similar-implementations
+  if grep -q "id: find-similar-implementations" "${ACTIVE_GATES}" 2>/dev/null; then
+    if [ "${TOOL_NAME}" = "Write" ]; then
+      case "${FILE_PATH_NORM}" in
+        */src/lib/*|*/src/components/*|*/src/hooks/*|*/src/utils/*|*/src/primitives/*)
+          # New file: target file doesn't exist yet
+          if [ ! -f "${FILE_PATH}" ]; then
+            # Look up the configured mode (default warn / max=3)
+            local mode max
+            mode=$(awk -v gid="find-similar-implementations" '
+              $0 ~ "id: " gid {found=1}
+              found && /enforcement_mode:/ { gsub(/.*enforcement_mode:[[:space:]]*/, ""); print; exit }
+            ' "${ACTIVE_GATES}" | tr -d '"')
+            max=$(awk -v gid="find-similar-implementations" '
+              $0 ~ "id: " gid {found=1}
+              found && /max_per_session:/ { gsub(/.*max_per_session:[[:space:]]*/, ""); print; exit }
+            ' "${ACTIVE_GATES}" | tr -d '"')
+            mode="${mode:-warn}"
+            max="${max:-3}"
+            warn_handle "find-similar-implementations" "${mode}" "${max}" \
+              "find-similar-implementations (audit Item 39): new primitive at ${FILE_PATH_NORM}. Invoke production-framework:find-similar-implementations first — produces 5-line REUSE/ADAPT/NEW candidate table. Bypass: PF_BYPASS=find-similar-implementations."
+          fi
+          ;;
+      esac
+    fi
+  fi
+}
+
+# =============================================================================
+# Project-level kill switch
+# =============================================================================
 if [ -f "${KILL_SWITCH}" ]; then
   log_bypass "PF_GATES_DISABLED" "project-level kill switch active"
   allow
 fi
 
-# ---------------------------------------------------------------------------
+# =============================================================================
 # Session-wide bypass
-# ---------------------------------------------------------------------------
+# =============================================================================
 if [ -n "${PF_BYPASS_ALL:-}" ] && [ "${PF_BYPASS_ALL}" = "1" ]; then
   if [ -z "${PF_BYPASS_REASON:-}" ]; then
-    deny "PF_BYPASS_ALL=1 set without PF_BYPASS_REASON. Set both or use per-rule PF_BYPASS=<rule-id>."
+    deny "PF_BYPASS_ALL=1 set without PF_BYPASS_REASON. Set both or use per-rule PF_BYPASS=<rule-id>." "PF_BYPASS_ALL"
   fi
   log_bypass "ALL" "${PF_BYPASS_REASON}"
   allow
 fi
 
-# ---------------------------------------------------------------------------
-# Parse the tool call
-# ---------------------------------------------------------------------------
-# Expect JSON like:
-# { "tool_name": "Edit"|"Write"|"Bash"|"Skill", "tool_input": { ... } }
-# Use minimal jq-free parsing — ${var//pattern/replacement} where possible
-
+# =============================================================================
+# Parse tool call from stdin JSON
+# =============================================================================
 TOOL_NAME=$(printf '%s' "$INPUT" | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
 COMMAND=$(printf '%s' "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"command"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
 FILE_PATH=$(printf '%s' "$INPUT" | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
 SKILL_NAME=$(printf '%s' "$INPUT" | grep -o '"skill"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"skill"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
 SUBAGENT_TYPE=$(printf '%s' "$INPUT" | grep -o '"subagent_type"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"subagent_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+AGENT_PROMPT=$(printf '%s' "$INPUT" | grep -o '"prompt"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"prompt"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
 
-# ---------------------------------------------------------------------------
-# Skill tool — log invocation, then detect tier-selection / triage + update
-# ---------------------------------------------------------------------------
+FILE_PATH_NORM="${FILE_PATH//\\//}"
+
+# =============================================================================
+# Skill / Agent invocation logging + timestamp updates
+# =============================================================================
 if [ "${TOOL_NAME}" = "Skill" ]; then
   log_invocation "skill" "${SKILL_NAME}"
   case "${SKILL_NAME}" in
@@ -158,17 +326,37 @@ if [ "${TOOL_NAME}" = "Skill" ]; then
   allow
 fi
 
-# ---------------------------------------------------------------------------
-# Agent / Task dispatch — log only (no gate)
-# ---------------------------------------------------------------------------
 if [ "${TOOL_NAME}" = "Agent" ] || [ "${TOOL_NAME}" = "Task" ]; then
   log_invocation "agent" "${SUBAGENT_TYPE}"
+  reset_read_count
+  check_active_gates_for_agent_dispatch
   allow
 fi
 
-# ---------------------------------------------------------------------------
-# Read session state — last invocation timestamps
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Read tool — universal floor heavy-read-dispatch
+# MED-2 fix: framework-state + .claude-plugin reads must be auto-allowed BEFORE
+# increment_read_count, or they pollute the deliverable-read counter.
+# =============================================================================
+if [ "${TOOL_NAME}" = "Read" ]; then
+  # Framework-workflow reads do not count against the deliverable budget
+  case "${FILE_PATH_NORM}" in
+    */.framework-state/*|*/.claude-plugin/*) allow ;;
+  esac
+  current_reads=$(increment_read_count)
+  if [ "${current_reads}" -ge 4 ]; then
+    if [ "${PF_BYPASS:-}" = "heavy-read-dispatch" ]; then
+      log_bypass "heavy-read-dispatch" "explicit bypass"
+      allow
+    fi
+    deny "heavy-read-dispatch (universal floor): main session has read >=4 files for one deliverable. Dispatch a production-framework:researcher sub-agent. This is the v1→v2 fork rationale; ignoring it returns the framework to v1's CTO-does-everything-in-main-context failure mode. Bypass: PF_BYPASS=heavy-read-dispatch." "heavy-read-dispatch"
+  fi
+  allow
+fi
+
+# =============================================================================
+# Read session state
+# =============================================================================
 TIER_SELECTION_TS=""
 LAST_USER_PROMPT_TS=""
 if [ -f "${SESSION_FILE}" ]; then
@@ -176,37 +364,29 @@ if [ -f "${SESSION_FILE}" ]; then
   LAST_USER_PROMPT_TS=$(grep -o '"last_user_prompt_at"[[:space:]]*:[[:space:]]*"[^"]*"' "${SESSION_FILE}" 2>/dev/null | sed 's/.*"last_user_prompt_at"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
 fi
 
-# ---------------------------------------------------------------------------
-# Gate 2 — Destructive-ops (Bash only)
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Legacy gate 2 — Destructive-ops + Legacy gate 5 — Dep-add (Bash only)
+# =============================================================================
 if [ "${TOOL_NAME}" = "Bash" ]; then
   if printf '%s' "${COMMAND}" | grep -qE 'rm[[:space:]]+-rf|reset[[:space:]]+--hard|push[[:space:]]+(--force|-f)|DROP[[:space:]]+(TABLE|DATABASE|SCHEMA)|TRUNCATE[[:space:]]+TABLE|--no-verify'; then
     if [ "${PF_BYPASS:-}" = "destructive" ]; then
       log_bypass "destructive" "explicit bypass for: ${COMMAND}"
       allow
     fi
-    deny "Destructive operation detected. Set PF_BYPASS=destructive + PF_BYPASS_REASON to proceed. Pattern matched: rm -rf | reset --hard | push --force | DROP TABLE | TRUNCATE | --no-verify."
+    deny "Destructive operation detected. Set PF_BYPASS=destructive + PF_BYPASS_REASON to proceed. Pattern matched: rm -rf | reset --hard | push --force | DROP TABLE | TRUNCATE | --no-verify." "destructive-ops"
   fi
-
-  # Gate 5 — Dep-add
   if printf '%s' "${COMMAND}" | grep -qE '(npm|pnpm|yarn|bun)[[:space:]]+(add|install)[[:space:]]+\S'; then
     if [ "${PF_BYPASS:-}" = "dep-add" ]; then
       log_bypass "dep-add" "explicit bypass"
       allow
     fi
-    deny "Dependency install detected. Document the Tool Selection Chain (eliminate / reuse / one-primitive / build-new) in your prior message, OR set PF_BYPASS=dep-add."
+    deny "Dependency install detected. Document the Tool Selection Chain (eliminate / reuse / one-primitive / build-new) in your prior message, OR set PF_BYPASS=dep-add." "dep-add"
   fi
 fi
 
-# ---------------------------------------------------------------------------
+# =============================================================================
 # Sub-agent tier-selection inheritance (F-V20)
-# When SUBAGENT_TYPE is set, this Edit/Write/Bash originated from a sub-agent
-# dispatch. The parent session already passed tier-selection (if applicable).
-# Inherit the parent's verdict instead of re-firing the gate per sub-agent.
-# Strength preservation: gate at the parent layer is untouched; this only
-# suppresses redundant per-sub-agent re-fire. Cited: WS2 Q8 BINDING (4/4
-# frameworks: OpenAI Agents SDK / LangGraph / AutoGen / Anthropic).
-# ---------------------------------------------------------------------------
+# =============================================================================
 if [ -n "${SUBAGENT_TYPE:-}" ] && [ -n "${TIER_SELECTION_TS}" ] && [ -n "${LAST_USER_PROMPT_TS}" ]; then
   if [[ "${TIER_SELECTION_TS}" > "${LAST_USER_PROMPT_TS}" ]] || [[ "${TIER_SELECTION_TS}" == "${LAST_USER_PROMPT_TS}" ]]; then
     log_invocation "subagent_inherit" "${SUBAGENT_TYPE}"
@@ -214,62 +394,106 @@ if [ -n "${SUBAGENT_TYPE:-}" ] && [ -n "${TIER_SELECTION_TS}" ] && [ -n "${LAST_
   fi
 fi
 
-# ---------------------------------------------------------------------------
-# MCP tool invocation logging (ADR-006 R2)
-# Log every MCP tool call to trigger-audit so Post-Mortem can mine MCP failure
-# patterns. The hook itself doesn't see the tool's success/failure (PreToolUse
-# fires before execution), but it logs the invocation. Pair with PostToolUse
-# (future) for the error capture; for now, the invocation log alone gives us
-# frequency + scope data.
-# ---------------------------------------------------------------------------
+# =============================================================================
+# MCP tool invocation logging
+# =============================================================================
 if [[ "${TOOL_NAME}" == mcp__* ]]; then
   log_invocation "mcp_tool_call" "${TOOL_NAME}"
   allow
 fi
 
-# ---------------------------------------------------------------------------
-# Gate 1 — tier-selection on Edit/Write/Bash (task-shape prompts)
-# Skip if Bash command is read-only (cat, ls, grep, etc.) — those are not task-shape
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Universal floor — Edit/Write checks (no-pii-in-logs, data-loss-disclosure)
+# =============================================================================
+if [ "${TOOL_NAME}" = "Edit" ] || [ "${TOOL_NAME}" = "Write" ]; then
+  # Extract NEW_CONTENT — use greedy match to capture content that may contain
+  # escaped quotes (\"). sed -n with greedy .* up to last "} or "," terminator.
+  # Then unescape \" → " for predicate matching.
+  NEW_CONTENT=$(printf '%s' "$INPUT" | sed -n 's/.*"new_string"[[:space:]]*:[[:space:]]*"\(.*\)"[,}].*/\1/p' | head -1)
+  if [ -z "${NEW_CONTENT}" ]; then
+    NEW_CONTENT=$(printf '%s' "$INPUT" | sed -n 's/.*"content"[[:space:]]*:[[:space:]]*"\(.*\)"[,}].*/\1/p' | head -1)
+  fi
+  # Unescape JSON \" → " so PII patterns inside string literals match
+  NEW_CONTENT="${NEW_CONTENT//\\\"/\"}"
+
+  # no-pii-in-logs (code files only) — log emission + PII keyword on same line
+  # Dropped the trailing strict predicate so console.log(password) matches too.
+  case "${FILE_PATH_NORM}" in
+    *.ts|*.tsx|*.py|*.go|*.rs|*.java|*.rb|*.js|*.jsx)
+      if printf '%s' "${NEW_CONTENT}" | grep -qE '(console\.log|logger\.|print\(|log\.(info|warn|error|debug|fatal)|fmt\.Print|System\.out).*(password|ssn|credit_card|session_token|jwt|api_key|secret_key|access_token|raw_email|raw_phone)'; then
+        if [ "${PF_BYPASS:-}" = "no-pii-in-logs" ]; then
+          log_bypass "no-pii-in-logs" "explicit bypass"
+        else
+          deny "no-pii-in-logs (universal floor): log emission appears to include credentials/PII (password, ssn, credit_card, session_token, jwt, api_key, secret, access_token, raw_email, raw_phone). Per ASVS V7.1.1, NIST AU-11, SOC 2 CC6.7. Use correlation IDs + redaction; reference fields by id not value. Bypass: PF_BYPASS=no-pii-in-logs." "no-pii-in-logs"
+        fi
+      fi
+      ;;
+  esac
+
+  # data-loss-disclosure (migration files only)
+  case "${FILE_PATH_NORM}" in
+    */migrations/*)
+      if printf '%s' "${NEW_CONTENT}" | grep -qiE '(DROP COLUMN|DROP TABLE|ALTER COLUMN.*TYPE|DELETE FROM)'; then
+        if ! printf '%s' "${NEW_CONTENT}" | grep -q 'DATA-LOSS'; then
+          if [ "${PF_BYPASS:-}" = "data-loss-disclosure" ]; then
+            log_bypass "data-loss-disclosure" "explicit bypass"
+          else
+            deny "data-loss-disclosure (universal floor): irreversible migration without DATA-LOSS marker. Add a comment: -- DATA-LOSS: <columns/rows lost on rollback>; <recovery path>. Bypass: PF_BYPASS=data-loss-disclosure." "data-loss-disclosure"
+          fi
+        fi
+      fi
+      ;;
+  esac
+fi
+
+# =============================================================================
+# Legacy gate 1 — tier-selection on Edit/Write/Bash (task-shape)
+# =============================================================================
 if [ "${TOOL_NAME}" = "Edit" ] || [ "${TOOL_NAME}" = "Write" ] || [ "${TOOL_NAME}" = "Bash" ]; then
-  # For Bash, allow read-only commands without tier-selection
+  # Read-only Bash commands skip the gate
   if [ "${TOOL_NAME}" = "Bash" ]; then
     if printf '%s' "${COMMAND}" | grep -qE '^(cat|ls|grep|rg|find|head|tail|wc|git[[:space:]]+(status|diff|log|show|branch))[[:space:]]'; then
       allow
     fi
   fi
 
-  # Skip gate if file_path is in framework state or docs (workflow files)
-  # Normalize backslash to forward-slash for Windows path compatibility (F-V13)
-  if [ -n "${FILE_PATH}" ]; then
-    FILE_PATH_NORM="${FILE_PATH//\\//}"
+  # Auto-allow framework workflow paths
+  if [ -n "${FILE_PATH_NORM}" ]; then
     case "${FILE_PATH_NORM}" in
-      */.framework-state/*|*/docs/*|*/.claude-plugin/*) allow ;;
+      */.framework-state/*|*/docs/*|*/.claude-plugin/*)
+        # Still apply active-gates check (some configurable gates may target docs paths)
+        check_active_gates_for_file_write
+        allow
+        ;;
     esac
   fi
 
-  # Check if tier-selection was invoked since the last user prompt
+  # PF_BYPASS per-rule
   if [ "${PF_BYPASS:-}" = "tier-selection" ]; then
     log_bypass "tier-selection" "explicit bypass"
+    check_active_gates_for_file_write
     allow
   fi
 
-  # If no user prompt has been seen yet (fresh session, no UserPromptSubmit fired),
-  # the gate is not yet applicable — allow.
+  # No user prompt yet — allow
   if [ -z "${LAST_USER_PROMPT_TS}" ]; then
+    check_active_gates_for_file_write
     allow
   fi
 
-  # User prompt has fired. Check tier-selection was invoked at or after it.
+  # tier-selection at-or-after last user prompt — allow
   if [ -n "${TIER_SELECTION_TS}" ]; then
     if [[ "${TIER_SELECTION_TS}" > "${LAST_USER_PROMPT_TS}" ]] || [[ "${TIER_SELECTION_TS}" == "${LAST_USER_PROMPT_TS}" ]]; then
+      check_active_gates_for_file_write
       allow
     fi
   fi
 
-  # User prompt fired AND (tier-selection never invoked OR invoked before the prompt) -> deny.
-  deny "tier-selection has not been invoked since the latest user prompt. Per ADR-002 D-A bundle: invoke production-framework:tier-selection before Edit/Write/Bash on task-shape prompts. Bypass: PF_BYPASS=tier-selection."
+  # tier-selection not fired since last user prompt → deny
+  deny "tier-selection has not been invoked since the latest user prompt. Per ADR-002 D-A bundle: invoke production-framework:tier-selection before Edit/Write/Bash on task-shape prompts. Bypass: PF_BYPASS=tier-selection." "tier-selection"
 fi
 
+# =============================================================================
 # Default: allow unmatched cases
+# =============================================================================
 allow

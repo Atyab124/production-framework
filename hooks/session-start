@@ -1,26 +1,85 @@
 #!/usr/bin/env bash
-# SessionStart hook for production-framework v2 plugin
-# Forked from superpowers 5.0.7 — JSON-escape and platform branching preserved verbatim
+# =============================================================================
+# session-start — Production Framework v2.4.0 hook
+#
+# Forked from superpowers 5.0.7 — JSON-escape and platform branching preserved.
+# Extended in v2.4.0 with the active-gates-fresh universal-floor check (U-04).
+# =============================================================================
 
 set -euo pipefail
 
-# Determine plugin root directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+STATE_DIR="${PROJECT_DIR}/.framework-state"
+ACTIVE_GATES="${STATE_DIR}/active-gates.yaml"
 
-# Initialize per-session framework state (per ADR-002 D-A bundle)
-# Creates .framework-state/session.json + bypass-log.jsonl in the project dir
-# so hooks/pre-tool-use.sh has the substrate it reads.
+# Initialize per-session framework state
 if [ -x "${PLUGIN_ROOT}/scripts/framework-state-init.sh" ]; then
   bash "${PLUGIN_ROOT}/scripts/framework-state-init.sh" >/dev/null 2>&1 || true
 fi
 
+# Ensure new v2.4.0 state files exist
+mkdir -p "${STATE_DIR}" 2>/dev/null || true
+[ -f "${STATE_DIR}/decision-log.jsonl" ] || touch "${STATE_DIR}/decision-log.jsonl"
+[ -f "${STATE_DIR}/warn-counts.json" ] || echo '{}' > "${STATE_DIR}/warn-counts.json"
+
+# =============================================================================
+# U-04 universal floor — active-gates-fresh check
+# Detect: missing/stale CLAUDE.md ## Active Gates section, or stale active-gates.yaml
+# =============================================================================
+active_gates_warning=""
+project_claude_md="${PROJECT_DIR}/CLAUDE.md"
+feedback_md="${PROJECT_DIR}/docs/FEEDBACK.md"
+
+# Check 1: CLAUDE.md missing or has no ## Active Gates section
+if [ ! -f "${project_claude_md}" ] || ! grep -q "^## Active Gates" "${project_claude_md}" 2>/dev/null; then
+  active_gates_warning="No '## Active Gates' section found in ${PROJECT_DIR}/CLAUDE.md. Run configure-project-gates before any non-trivial task to pick which HARD-GATEs activate for this project."
+fi
+
+# Check 2: active-gates.yaml missing
+if [ -z "${active_gates_warning}" ] && [ ! -f "${ACTIVE_GATES}" ]; then
+  active_gates_warning="No .framework-state/active-gates.yaml found. Run configure-project-gates to generate the runtime configuration the hook reads."
+fi
+
+# Check 3: active-gates.yaml older than FEEDBACK.md (stale)
+if [ -z "${active_gates_warning}" ] && [ -f "${ACTIVE_GATES}" ] && [ -f "${feedback_md}" ]; then
+  if [ "${feedback_md}" -nt "${ACTIVE_GATES}" ]; then
+    active_gates_warning="docs/FEEDBACK.md has been modified since active-gates.yaml was last configured. Run configure-project-gates to re-evaluate which gates should activate based on new feedback."
+  fi
+fi
+
+# Check 4: active-gates.yaml older than 14 days (drift detection)
+if [ -z "${active_gates_warning}" ] && [ -f "${ACTIVE_GATES}" ]; then
+  # Get file mtime in seconds since epoch
+  local_mtime=$(date -r "${ACTIVE_GATES}" +%s 2>/dev/null || stat -c %Y "${ACTIVE_GATES}" 2>/dev/null || echo "0")
+  now_epoch=$(date +%s)
+  age_seconds=$((now_epoch - local_mtime))
+  fourteen_days=$((14 * 86400))
+  if [ "${age_seconds}" -gt "${fourteen_days}" ]; then
+    active_gates_warning="active-gates.yaml is $((age_seconds / 86400)) days old. Run configure-project-gates to re-evaluate (14-day staleness window per U-04)."
+  fi
+fi
+
+# =============================================================================
 # Read using-production-framework bootstrap content
+# =============================================================================
 bootstrap_content=$(cat "${PLUGIN_ROOT}/skills/using-production-framework/SKILL.md" 2>&1 || echo "Error reading using-production-framework skill")
 
-# Escape string for JSON embedding using bash parameter substitution.
-# Each ${s//old/new} is a single C-level pass - orders of magnitude
-# faster than the character-by-character loop this replaces.
+# Prepend the active-gates-fresh warning if applicable
+if [ -n "${active_gates_warning}" ]; then
+  bootstrap_content="## URGENT — active-gates-fresh universal floor U-04
+
+${active_gates_warning}
+
+Until you run configure-project-gates, the framework's per-project gate selection is missing or stale. Most non-trivial tasks should pause to invoke production-framework:configure-project-gates before continuing.
+
+---
+
+${bootstrap_content}"
+fi
+
+# Escape string for JSON
 escape_for_json() {
     local s="$1"
     s="${s//\\/\\\\}"
@@ -34,23 +93,12 @@ escape_for_json() {
 bootstrap_escaped=$(escape_for_json "$bootstrap_content")
 session_context="<EXTREMELY_IMPORTANT>\nYou are the CTO of an enterprise multi-tenant SaaS team. The production-framework plugin gives you 13 specialist sub-agents and 8 execution cycles. You delegate; you do not implement.\n\n**Below is the full content of the 'production-framework:using-production-framework' skill — your introduction to CTO mode. For all other skills, use the 'Skill' tool:**\n\n${bootstrap_escaped}\n</EXTREMELY_IMPORTANT>"
 
-# Output context injection as JSON.
-# Cursor hooks expect additional_context (snake_case).
-# Claude Code hooks expect hookSpecificOutput.additionalContext (nested).
-# Copilot CLI (v1.0.11+) and others expect additionalContext (top-level, SDK standard).
-# Claude Code reads BOTH additional_context and hookSpecificOutput without
-# deduplication, so we must emit only the field the current platform consumes.
-#
-# Uses printf instead of heredoc to work around bash 5.3+ heredoc hang.
-# See: https://github.com/obra/superpowers/issues/571
+# Platform-specific JSON output
 if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
-  # Cursor sets CURSOR_PLUGIN_ROOT (may also set CLAUDE_PLUGIN_ROOT)
   printf '{\n  "additional_context": "%s"\n}\n' "$session_context"
 elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -z "${COPILOT_CLI:-}" ]; then
-  # Claude Code sets CLAUDE_PLUGIN_ROOT without COPILOT_CLI
   printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$session_context"
 else
-  # Copilot CLI (sets COPILOT_CLI=1) or unknown platform — SDK standard format
   printf '{\n  "additionalContext": "%s"\n}\n' "$session_context"
 fi
 
