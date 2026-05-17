@@ -40,17 +40,35 @@ fi
 # Update last_user_prompt_at to now (UTC ISO 8601)
 NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# Filter system-reminder events out of last_user_prompt_at updates (F-V9 A2).
-# System reminders (TodoWrite reminders, deferred-tools notifications, etc.)
-# arrive as UserPromptSubmit events and would otherwise re-arm the tier-selection
-# gate. Detect the <system-reminder> prefix in the prompt payload and skip the
-# timestamp write. Strength preservation: pre-tool-use gate logic untouched.
-IS_SYSTEM_REMINDER=0
-if printf '%s' "${INPUT}" | grep -qE '"prompt"[[:space:]]*:[[:space:]]*"<system-reminder>'; then
-  IS_SYSTEM_REMINDER=1
+# Filter system events AND pure continuation directives out of last_user_prompt_at
+# updates. These should not re-arm task-shape gates (tier-selection, cycle-selection)
+# because they do not signal a new user task.
+#
+# Filtered:
+#   - <system-reminder> (F-V9 A2, 2026-05-17): TodoWrite reminders, deferred-tools
+#     notifications. Arrive as UserPromptSubmit events but originate from the harness.
+#   - <task-notification> (F-8, 2026-05-17): background-agent completions also arrive
+#     as UserPromptSubmit. Previously slipped through the system-reminder regex.
+#   - Pure continuation directives (F-2, 2026-05-17): "yes" / "continue" / "ok" /
+#     "keep going" / "proceed" / "do it" / "do as you recommend" / etc. Bounded
+#     match (anchored at start of prompt body, ends the prompt) — avoids false
+#     positives on long instructive prompts that happen to start with "yes".
+#
+# Strength preservation: pre-tool-use gate logic untouched; this filter is the only
+# behavioral change. When the filter catches an event, last_user_prompt_at stays at
+# its prior (substantive-prompt) value, and the gate's timestamp comparison
+# (tier_selection_invoked_at >= last_user_prompt_at) keeps passing.
+IS_FILTERED_INPUT=0
+if printf '%s' "${INPUT}" | grep -qE '"prompt"[[:space:]]*:[[:space:]]*"<(system-reminder|task-notification)>'; then
+  IS_FILTERED_INPUT=1
+fi
+if [ "${IS_FILTERED_INPUT}" = "0" ]; then
+  if printf '%s' "${INPUT}" | grep -qiE '"prompt"[[:space:]]*:[[:space:]]*"(yes|ok|okay|continue|go|sure|yep|proceed|carry on|do it|keep going[^"]{0,40}|do as you recommend[^"]{0,40}|make the decision[^"]{0,80}end[- ]?to[- ]?end[^"]{0,20})[.!?]*"[[:space:]]*[,}]'; then
+    IS_FILTERED_INPUT=1
+  fi
 fi
 
-if [ "${IS_SYSTEM_REMINDER}" = "0" ]; then
+if [ "${IS_FILTERED_INPUT}" = "0" ]; then
   # Use a temp file + sed to update the field portably (avoid jq dependency per CLAUDE.md zero-deps posture)
   tmp=$(mktemp)
   sed -E "s/\"last_user_prompt_at\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"last_user_prompt_at\": \"${NOW}\"/" "${SESSION_FILE}" > "${tmp}"

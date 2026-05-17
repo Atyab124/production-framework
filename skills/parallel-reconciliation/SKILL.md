@@ -1,7 +1,9 @@
 ---
 name: parallel-reconciliation
-description: "Use after 2+ agents (researchers / debuggers / builders / etc.) have returned in parallel — reconciles their outputs into a single decision. Closing primitive paired with dispatching-parallel-agents. Includes verdict-precedence ladder for conflicting findings + HARD-GATE against silent override."
+description: "Use after 2+ agents (researchers / debuggers / builders / etc.) have returned in parallel — reconciles their outputs into a single decision. Closing primitive paired with dispatching-parallel-agents. Includes verdict-precedence ladder for conflicting findings + HARD-GATE against silent override. Auto-loaded by SubagentStop hook (v2.5.0) when ≥2 parallel returns are detected within 10 minutes; catalog C-04 blocks the next consuming dispatch until the reconciliation doc lands."
 ---
+
+> **Auto-loaded by SubagentStop hook (v2.5.0, F-9 fix).** When ≥2 sub-agents complete within 10 minutes on the same cycle, `hooks/subagent-stop` writes a `.framework-state/pending-reconciliation.jsonl` marker AND injects a system-reminder into the next CTO turn pointing at this skill. Catalog C-04 (parallel-reconciliation gate, PR-11) is in block-tier and will deny the next consuming dispatch until `docs/reconciliation/<wave-id>.md` materializes. The skill no longer relies on dispatcher initiative — auto-load + block-on-absent-doc together close FEEDBACK F-9 (warn-tier silent-skip was structurally undiscoverable). Output contract: produce `docs/reconciliation/<wave-id>-<UTC>.md` per Step 4 below; the gate verifies presence before unblocking.
 
 ## Overview
 
