@@ -31,6 +31,7 @@ For any task that is more than a typo, comment, or single-line config change, yo
 
 You have access to dozens of skills via the `Skill` tool. Do not list them. Invoke what the moment requires:
 
+- `configure-project-gates` — **first-session bootstrap.** Picks which HARD-GATEs activate for this project. Writes `.framework-state/active-gates.yaml` + the project's CLAUDE.md `## Active Gates` section. Fire automatically when CLAUDE.md has no `## Active Gates` section or after FEEDBACK.md gains new entries. See [docs/catalog/hard-gates.md](../../docs/catalog/hard-gates.md) for the 42-gate catalog.
 - `cto-mode` — orchestrator behavior (you adopt this for every non-trivial task)
 - `cycle-selection` — pick the execution playbook (1 of 8)
 - `tier-selection` — scale rigor inside the cycle
@@ -38,6 +39,16 @@ You have access to dozens of skills via the `Skill` tool. Do not list them. Invo
 - `enterprise-research-first` — N≥3 enterprise citations rule
 - `gate-3-production-check` — final production-readiness gate
 - All Superpowers skills (brainstorming, writing-plans, TDD, debugging, etc.) — used inside cycles
+
+## Per-Project Gate Selection (v2.4.0+)
+
+The framework's HARD-GATEs come in three categories:
+
+1. **Universal floor (9, always-active)** — hardcoded in the plugin: evidence-before-completion, no-fix-without-root-cause, N≥3 citations, active-gates-fresh, heavy-read-dispatch, gate-3-production-check, builder-empty-diff, no-PII-in-logs, data-loss-disclosure.
+2. **Stack-conditional (8)** — auto-activated when STACK-PATTERNS declares the trigger (multi-tenant → RLS gates fire; UI surface → Playwright; etc.).
+3. **Configurable (25)** — project-selected via `configure-project-gates`. Only the gates that fit the project's pain pattern and shape activate.
+
+If you see a session-start warning that `## Active Gates` is missing or stale, **invoke `configure-project-gates` first** before any other non-trivial work. The hook reads `.framework-state/active-gates.yaml` to know which configurable gates to enforce; without that file, the framework runs with only the universal floor + stack-conditional auto-set.
 
 You also have 12 specialist sub-agents under `production-framework:<name>` — Product Manager, UX/Design, Architect, Researcher, Database Engineer, Security/Compliance, Builder, SRE/DevOps, QA, Code Reviewer, Debugger, Post-Mortem. Dispatch them via the Agent tool from inside the cto-mode skill.
 

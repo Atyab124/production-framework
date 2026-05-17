@@ -155,3 +155,71 @@ LICENSE                             # MIT, Jesse Vincent attribution preserved
 README.md
 RELEASE-NOTES.md
 ```
+
+---
+
+## Active Gates
+
+<!-- Managed by skills/configure-project-gates. Re-run that skill after FEEDBACK.md updates or after 14 days. -->
+<!-- last_configured: 2026-05-17T19:15:00Z -->
+<!-- catalog: docs/catalog/hard-gates.md v1 -->
+<!-- machine-readable form: .framework-state/active-gates.yaml -->
+
+This section governs the framework's own dev (meta-project; bootstrap deviation per RELEASE-NOTES v2.4.0). Sub-agent dispatches that occur within this repo read this section and enforce only the gates listed below.
+
+### Universal floor (always-active, hardcoded — cannot be disabled)
+- `evidence-before-completion` — agents must run fresh verification before claiming DONE (SP Iron Law)
+- `no-fix-without-root-cause` — debugger Iron Law before any Builder dispatch in debug cycle
+- `enterprise-citation-rule` — Researcher returns <3 citations → NEEDS_CONTEXT, never fabricates (binding rule)
+- `active-gates-fresh` — session-start reminder when this section is missing or stale (NEW v2.4.0)
+- `heavy-read-dispatch` — main session must dispatch researcher before reading ≥3 source files (v1→v2 fork rationale)
+- `gate-3-production-check` — no production-ready claim without fresh 18-dimension walk
+- `builder-empty-diff` — declared `scope: code` + zero-file diff → `DONE_WITH_CONCERNS` (F-V10)
+- `no-pii-in-logs` — log emission must not include credentials/email/phone/payment/session-tokens (ASVS V7.1.1)
+- `data-loss-disclosure` — irreversible migrations require the 3-line DATA-LOSS block (pt-osc precedent)
+
+### Stack-conditional (auto-activated by STACK-PATTERNS) — 0 of 8 active for this project
+Framework is not multi-tenant, no UI, no migrations, not a production service. Multi-tenant gates (S-01 through S-04), audit-trail (S-05), browser-driven-verification (S-06), migration-phase (S-07), and SLO/SLI (S-08) all dormant. See [.framework-state/active-gates.yaml](.framework-state/active-gates.yaml) for the dormancy reasons.
+
+### Configurable — 18 of 25 active (project-selected)
+
+**Block tier (12 gates — score ≥ +3):**
+- `worktree-preflight` (score 8) — Builder worktree dispatches need clean git status + pinned SHA (WORKTREE consolidates F-V10/11/21/25/27)
+- `phase-state-enforcement` (7) — refuse Phase N+1 dispatch until prior phase DONE or SKIPPED+justification (ADR-012; 9/9 enterprise consensus)
+- `builder-execute-verb-scope` (6) — Builder dispatch must use EXECUTE verb + `scope:` declaration (F-V7, ~83% Sonnet recurrence)
+- `researcher-citation-freshness` (6) — citations need `last_verified` + `verification_method`; ≥90d stale → re-verify or tag INSUFFICIENT (F-V39)
+- `cycle-selection-before-dispatch` (4) — invoke cycle-selection before any `production-framework:` sub-agent dispatch
+- `researcher-competitor-roster` (4) — research cycles cite each declared competitor or document exclusion per lens (Item 1)
+- `tier-selection-on-task-shape` (3) — already enforced in hooks/pre-tool-use Gate 1
+- `seven-validation-questions` (3) — Tier 2/3 plans blocked from Builder dispatch on BLOCKED answer
+- `architect-no-source-code` (3) — Architect writes outside docs/architecture/ → BLOCKED
+- `qa-stage-1-blocks-stage-2` (3) — spec compliance first; code quality only if Stage 1 passes
+- `postmortem-blameless` (3) — forbidden blame phrases denied; systemic framing required
+- `(slot reserved for future)`
+
+**Warn tier (6 gates — score 0 to +2):**
+- `parallel-reconciliation` (warn, max 3) — ≥2 parallel agents return → reconciliation doc required (Item 29)
+- `find-similar-implementations` (warn, max 3) — new primitive in shared module → 4-step search first (audit Item 39)
+- `regression-scope` (warn, max 2) — shared-module changes need regression-scope catalog entry
+- `architect-spectrum-not-binary` (warn, max 2) — Architect REJECT must enumerate disqualifying constraint per category (Item 5)
+- `architect-contract-conventions` (warn, max 1) — Codebase contract conventions section required when sibling action files exist (F-V29)
+- `architect-dependency-inventory` (warn, max 2) — library proposals need dependency-inventory step (Item 3)
+- `security-control-id` (warn, max 3) — security findings need OWASP/NIST/SOC2 control ID
+
+### Dormant — 7 of 25 (reconsidered on next re-run)
+
+- `incident-response-rollback-first` — framework has no live production service
+- `researcher-anchor-visual-verification` — no UX anchor binding (F-V31 was project-side)
+- `pm-audit-first` — PM agent not dispatched for framework's own dev (F-V34 is HIGH leverage when PM IS active)
+- `pm-given-when-then` — PM not used + format-prescriptive doesn't fit framework
+- `tdd-iron-law` — no formal unit-test surface for markdown + bash framework
+- `early-playwright-smoke` — no UI surface
+- `quality-gate-phase-close` — catalog OW-1 (F-V32 framing concern unresolved)
+
+### Bypass grammar
+- Per-rule: `PF_BYPASS=<gate-id>` (logs to `.framework-state/decision-log.jsonl`)
+- Session-wide: `PF_BYPASS_ALL=1 PF_BYPASS_REASON="<reason>"` (logs)
+- Project kill switch: `touch .framework-state/PF_GATES_DISABLED` (logs every invocation)
+
+### Next re-run trigger
+Configure-project-gates fires again when ANY of: `docs/FEEDBACK.md` modified after `last_configured`, `templates/STACK-PATTERNS.template.md` modified, 14 days elapsed, or user explicit invocation.
