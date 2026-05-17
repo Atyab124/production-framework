@@ -59,6 +59,38 @@ You MUST create a task for each of these and complete them in order:
 
 When a build cycle has both backend and frontend deliverables, dispatch **two parallel `builder` instances** — one scoped to backend files, one scoped to frontend files. Use `worktree-isolation` if files might overlap. This matches Anthropic's "the lead agent spawns 3-5 subagents simultaneously" pattern (multi-agent research system, Jun 2025).
 
+## Active-Gates Injection on Sub-Agent Dispatch (v2.4.0+)
+
+Per-project HARD-GATEs are listed in the project's CLAUDE.md `## Active Gates` section, produced by `configure-project-gates`. Sub-agents have their own context windows and do NOT automatically load the project CLAUDE.md.
+
+**Before every sub-agent dispatch:**
+
+1. Read the project's CLAUDE.md `## Active Gates` section (or its summary in `.framework-state/active-gates.yaml`).
+2. Filter the list to gates whose `trigger.agent` matches the sub-agent you're about to dispatch.
+3. Prepend a brief `ACTIVE GATES THIS PROJECT:` block to the dispatch prompt naming the relevant gate IDs.
+
+Example dispatch shape for the Builder sub-agent:
+
+```
+ACTIVE GATES THIS PROJECT (from CLAUDE.md ## Active Gates):
+  - builder-empty-diff (universal — declare EMPTY_DIFF_FLAG on zero-file diff under scope: code)
+  - worktree-preflight (block — needs clean git status + pinned SHA in this prompt)
+  - builder-execute-verb-scope (block — this prompt opens with EXECUTE + scope: <category>)
+  - find-similar-implementations (warn, max 3 — invoke before any new src/lib|hooks|utils helper)
+
+EXECUTE the plan at docs/plans/<feature>.md. Do not re-plan or re-design. The plan IS the spec.
+
+scope: code
+file scope: <files>
+BASE_SHA: <git rev-parse HEAD output>
+plan reference: <task numbers>
+...
+```
+
+The sub-agent's system prompt (from `agents/builder.md`) describes WHAT each gate enforces; the ACTIVE GATES block tells the sub-agent WHICH gates are live for this project. Gates not listed are dormant — the sub-agent's HARD-GATE blocks read informational, not enforced.
+
+This injection mechanism is the substrate for per-project gate selection at the sub-agent layer. Without it, the configurable gates in skill bodies fire universally (the F-V38 over-trigger pattern). With it, only the project's chosen subset enforces.
+
 ## Cycle Templates
 
 You select one via the `cycle-selection` skill. Each template defines (a) which agents run (b) order/parallelism (c) shared-context files written.
