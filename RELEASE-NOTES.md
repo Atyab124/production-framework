@@ -1,5 +1,69 @@
 # Production Framework v2 — Release Notes
 
+## v2.4.0 (2026-05-17) — IN-DEVELOPMENT
+
+**Pivot release.** Cancels Phase 10 (the 2026-05-12 ADR-008-through-017 + B1-B9 cycle plan) in favor of a structural rewrite: convert the framework's ~30 universal HARD-GATEs into a per-project configurable catalog with a meta-skill that selects which gates fit each project.
+
+**Motivation:**
+- F-V40 — feedback log accumulates `Proposed fix: HARD-GATE` recommendations but has no mechanism converting them into enforced gates per project. Plugin updates lag real-world friction by months; per-project pain shapes are squashed into one global default.
+- TaskIt 2026-05-15+ feedback (F-V7, F-V15, F-V17, F-V29, F-V31, F-V33, F-V34, F-V39, WORKTREE) overflowed the Phase 10 plan within 4 days of it being drafted. Phase 10's direct prompt-edit approach didn't scale.
+- Empirical signal: TaskIt sessions used only ~5 of 36 available skills; HARD-GATEs in prose were skipped while hook-enforced gates were honored.
+
+**Three-researcher design ratification (2026-05-17):**
+- Trigger format: Lefthook + Claude Code hooks hybrid — flat list, regex tool matcher, glob file pattern, optional bash predicate. 4/4 use-case-fit-pass frameworks; 6-7/9 enterprise consensus. See `docs/research/configure-project-gates-trigger-format-2026-05-17.md`.
+- Severity/enforcement: 3-mode `block / warn / audit` with per-gate severity tier (`critical / standard / friction`). 5/5 enterprise policy engines (Sentinel, OPA, Pod Security Admission, ESLint, AWS Config). See `docs/research/configure-project-gates-deny-vs-warn-2026-05-17.md`.
+- Phase enforcement: RATIFIES ADR-012 (skill-layer enforcement at cto-mode + cycle-state.md substrate). 9/9 enterprise consensus on coordinator-layer placement; 0/9 use runtime-hook layer. See `docs/research/configure-project-gates-phase-enforcement-2026-05-17.md`.
+
+**Universal floor (9 gates, hardcoded — cannot be disabled):**
+1. Evidence-before-completion (verification Iron Law)
+2. No-fix-without-root-cause (debugger Iron Law)
+3. N≥3 enterprise citation rule
+4. Active-gates configuration fresh (NEW — session-start reminder)
+5. heavy-read-dispatch (no main-session reads >3 files)
+6. gate-3-production-check Iron Law
+7. Builder empty-diff self-attestation
+8. No PII in audit logs / log emission paths
+9. Data-Loss Disclosure on irreversible migrations
+
+**Stack-conditional (8 gates, auto-activated by STACK-PATTERNS):**
+- Tenancy model declared (multi-tenant)
+- FORCE RLS / non-owning role
+- Cache-key tenant-scoping
+- Cross-tenant safeguards (7-layer)
+- Audit-trail mandatory fields
+- Browser-driven verification on UI
+- RLS-aware migration phase classification
+- SLO/SLI contract for production surface
+
+**Configurable (25 gates, project-selectable via configure-project-gates):**
+- All current skill/agent HARD-GATEs not in the floor
+- All FEEDBACK.md `HARD-GATE` proposals (F-V7/15/17/22/23/24/26/28/29/30/31/34/35/37/39 + Items 1/3/5/6/7/8/9/10/12 + WORKTREE)
+
+**New artifacts:**
+- `docs/catalog/hard-gates.md` — the 42-row catalog (source of truth for configure-project-gates)
+- `skills/configure-project-gates/SKILL.md` — the meta-skill that reads catalog + project context → writes active-gates.yaml + CLAUDE.md
+- `.framework-state/active-gates.yaml` schema — per-project runtime configuration the hook reads
+- `.framework-state/decision-log.jsonl` schema — append-only audit of every deny + bypass for drift mining
+
+**Hook changes:**
+- `pre-tool-use` reads `.framework-state/active-gates.yaml` and enforces only listed configurable gates (universal floor always fires regardless of file).
+- New deny/warn distinction per-gate; warn auto-escalates to block after max_per_session threshold.
+- All bypasses log to `.framework-state/decision-log.jsonl` for retrospective mining.
+
+**Cancelled artifacts (from Phase 10):**
+- ADRs 008-017 (10) — converted to catalog entries
+- Build cycles B1-B9 — replaced by single configure-project-gates implementation
+- B1 (citation re-verification) — partially completed inside research-dispatch-3 (Airflow/Temporal/Argo/Magentic-One re-verified via primary WebFetch)
+
+**Plugin-version impact:** MINOR per CLAUDE.md versioning matrix.
+- New skill (configure-project-gates) → MINOR
+- New template section (catalog schema) → MINOR
+- Hook contract: additive — existing tier-selection/destructive-ops/dep-add gates unchanged; new gates layer on. NOT MAJOR.
+
+**Bootstrap deviation declared:** the configure-project-gates skill that should run at session start for every project is itself the artifact being shipped this release. Initial implementation is hand-curated; once shipped, the next release can be configured by configure-project-gates against the framework's own FEEDBACK log.
+
+---
+
 ## v2.3.0 (2026-05-10)
 
 Closes three internal-consistency findings surfaced by user inspection of the framework's own dispatch contract. Adds the Producer-Consumer Convention. Reframes tier-selection's axis basis. Lands the greenfield onboarding guide.
