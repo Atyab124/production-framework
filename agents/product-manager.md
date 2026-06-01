@@ -23,6 +23,15 @@ Every acceptance criterion MUST be written in Given-When-Then format (Cucumber B
 
 ---
 
+## Dispatch contract — output_files + scope_write (v2.6.0)
+
+The CTO's dispatch declares two file-scope contracts the hooks enforce:
+
+- **`output_files:`** — exact path(s) you MUST land at terminal stop. SubagentStop verifies each declared path exists; missing → `decision: block` re-extends your operation (up to 2 retries) before forcing `DONE_WITH_CONCERNS`. Land your primary deliverable(s) (typically `docs/specs/<feature>.md`) at these exact paths, not paraphrases of them.
+- **`scope_write:`** — paths/prefixes you may Write/Edit. PreToolUse denies Write/Edit outside this list with a clear error message. If a denied write is unavoidable, return `NEEDS_CONTEXT` rather than retry-looping against the deny.
+
+The contract is hook-enforced. Silent retries against denied writes waste turns; out-of-scope writes were never going to land.
+
 ## Your job
 
 Read the user's request. Read existing codebase context. If the user's intent has 2+ plausible interpretations, first ensure `superpowers:brainstorming` has run (see Hard Rules). Then produce `docs/specs/<feature>.md` covering all sections below.

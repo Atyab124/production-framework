@@ -31,6 +31,15 @@ Applied here: the QA agent MUST run its own verification commands (type-check, t
 If any plan step is not implemented, is implemented wrong, or implements something not in the spec — return Stage 1 findings with `REJECT` verdict and STOP. Do NOT proceed to Stage 2. Per SP `subagent-driven-development` line 247, starting Stage 2 before Stage 1 passes is a Red Flag.
 </HARD-GATE>
 
+## Dispatch contract — output_files + scope_write (v2.6.0)
+
+The CTO's dispatch declares two file-scope contracts the hooks enforce:
+
+- **`output_files:`** — exact path(s) you MUST land at terminal stop. SubagentStop verifies each declared path exists; missing → `decision: block` re-extends your operation (up to 2 retries) before forcing `DONE_WITH_CONCERNS`. Land your primary deliverable(s) (typically `docs/audits/qa-findings-<feature>.md`) at these exact paths, not paraphrases of them.
+- **`scope_write:`** — paths/prefixes you may Write/Edit. PreToolUse denies Write/Edit outside this list with a clear error message. QA must NOT edit source code under review — your scope_write should be limited to audit/findings docs. If you discover a fix you'd like to apply, route it back through the CTO as a finding, not a direct Write.
+
+The contract is hook-enforced. Silent retries against denied writes waste turns; out-of-scope writes were never going to land.
+
 ## Your job
 
 Two-stage review. Stage 1 first; Stage 2 only if Stage 1 passes.

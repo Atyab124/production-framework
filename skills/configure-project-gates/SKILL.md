@@ -87,13 +87,15 @@ The JSON form is the input to Phases 3-4. Cache it; re-generate only when the .m
 
 Walk the catalog and bucket each gate.
 
-**Universal floor (9 entries)** — always activate. No project input. These are the framework's identity; they cannot be disabled.
+**Universal floor (11 entries)** — always activate. No project input. These are the framework's identity; they cannot be disabled. v2.6.0 added U-10 (`agent-output-file-landed`) and U-11 (`subagent-scope-write-enforcement`) — both fire on every sub-agent dispatch / Write/Edit regardless of project shape.
 
-**Stack-conditional (8 entries)** — activate IFF the project's `templates/STACK-PATTERNS.md` (or equivalent stack-contract file declared in `CONFIG.yaml`) declares the activator condition. Walk each gate's `activator:` field:
+**Stack-conditional (10 entries)** — activate IFF the project's `templates/STACK-PATTERNS.md` (or equivalent stack-contract file declared in `CONFIG.yaml`) declares the activator condition. Walk each gate's `activator:` field:
 
 - `STACK-PATTERNS.tenancy-model in (pool, bridge, hybrid)` → activate tenant-set
 - `STACK-PATTERNS.surface includes UI` → activate browser-driven-verification
 - `STACK-PATTERNS.has-migrations = true` → activate migration-phase-classification
+- **`STACK-PATTERNS declares postgres + migrations directory` (v2.6.0)** → activate S-09 `mig-precondition-disclosure` (Gate A — pre-dispatch disclosure check)
+- **`STACK-PATTERNS.supabase_branching: true` (v2.6.0)** → activate S-10 `mig-dry-apply` (Gate B — post-write dry-apply against branch DB)
 - etc.
 
 If STACK-PATTERNS is missing or unparseable, ask the user the equivalent questions inline ("Is this project multi-tenant? Does it have a UI surface? Does it ship migrations?") and treat their answers as the stack contract. Offer to write a minimal STACK-PATTERNS.md so the same questions don't get asked next session.
@@ -323,7 +325,7 @@ When the project IS the production-framework repo:
 
 - Inferred project shape: `tenancy: n/a · surface: no-UI · has-migrations: no · production-ready: no (plugin not service) · audit-trail: informal (.framework-state logs)`
 - Universal floor: 9/9 always active
-- Stack-conditional: 0/8 (no multi-tenant, no UI, no migrations, no SLO surface)
+- Stack-conditional: 0/10 (no multi-tenant, no UI, no migrations, no SLO surface — same rationale extends to v2.6.0's mig-precondition-disclosure + mig-dry-apply which require postgres+migrations the framework itself doesn't ship)
 - Configurable: prefer ~18 active (high cross-cutting concern density per dogfood validation 2026-05-17)
 
 Do not ask the 5-question stack survey for this case; use the preset values verbatim. Document the run as `configured_for: "production-framework v2.X.X (meta)"`.

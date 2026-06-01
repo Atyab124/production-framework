@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# =============================================================================
+# post-tool-use — Production Framework v2.6.0 hook
+#
+# Fires AFTER a tool call completes successfully. Used by v2.6.0 §2 Gate B
+# (mig-dry-apply) to apply migration files against Supabase Branch DB and catch
+# SQL errors that pre-dispatch grep cannot see.
+#
+# Stack-conditional: requires `supabase_branching: true` in STACK-PATTERNS.md
+# (or templates/STACK-PATTERNS.template.md fallback). If neither declared:
+# advisory log only, no enforcement.
+#
+# Hook contract per code.claude.com/docs/en/hooks (verified verbatim
+# 2026-05-27): PostToolUse can write to additionalContext for next-turn context
+# injection; it does NOT block the tool call that already completed. Block-the-
+# next-dispatch wiring (v2.6.1 follow-up) reads the mig-dry-apply-pending state
+# file in pre-tool-use.
+#
+# Citation: Supabase Branching (R2 verified verbatim: "Each branch is a separate
+# environment with its own Supabase instance and API credentials"); Atlas
+# migrate lint; gh-ost shadow table.
+# =============================================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+STATE_DIR="${PROJECT_DIR}/.framework-state"
+
+mkdir -p "${STATE_DIR}" 2>/dev/null || true
+
+# Per-project kill switch — short-circuit if v2.6.0 is disabled
+if [ -f "${STATE_DIR}/v2-6-disabled" ]; then
+  exit 0
+fi
+
+INPUT=$(cat 2>/dev/null || echo "")
+
+TOOL_NAME=$(printf '%s' "$INPUT" | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+FILE_PATH=$(printf '%s' "$INPUT" | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+COMMAND=$(printf '%s' "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"command"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+
+FILE_PATH_NORM="${FILE_PATH//\\//}"
+
+# Helpers (graceful degradation)
+log_bypass() { :; }   # stub — post-tool-use doesn't need full bypass-logging
+PF_BYPASS="${PF_BYPASS:-}"
+
+if [ -f "${SCRIPT_DIR}/v2-6-helpers.sh" ]; then
+  # shellcheck source=./v2-6-helpers.sh
+  . "${SCRIPT_DIR}/v2-6-helpers.sh"
+  if declare -F run_mig_dry_apply >/dev/null 2>&1; then
+    run_mig_dry_apply || true
+  fi
+fi
+
+exit 0

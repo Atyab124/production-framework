@@ -177,9 +177,11 @@ This section governs the framework's own dev (meta-project; bootstrap deviation 
 - `builder-empty-diff` — declared `scope: code` + zero-file diff → `DONE_WITH_CONCERNS` (F-V10)
 - `no-pii-in-logs` — log emission must not include credentials/email/phone/payment/session-tokens (ASVS V7.1.1)
 - `data-loss-disclosure` — irreversible migrations require the 3-line DATA-LOSS block (pt-osc precedent)
+- `agent-output-file-landed` *(v2.6.0)* — SubagentStop verifies declared `output_files:` paths exist; missing → `decision: block` re-extends sub-agent's operation up to 2 retries (FEEDBACK §1 + CrewAI `Task.output_file` precedent)
+- `subagent-scope-write-enforcement` *(v2.6.0)* — PreToolUse denies `Write|Edit` to paths outside in-flight sub-agent's declared `scope_write[]` (mirror of v2.5 PR-9 read-side check)
 
-### Stack-conditional (auto-activated by STACK-PATTERNS) — 0 of 8 active for this project
-Framework is not multi-tenant, no UI, no migrations, not a production service. Multi-tenant gates (S-01 through S-04), audit-trail (S-05), browser-driven-verification (S-06), migration-phase (S-07), and SLO/SLI (S-08) all dormant. See [.framework-state/active-gates.yaml](.framework-state/active-gates.yaml) for the dormancy reasons.
+### Stack-conditional (auto-activated by STACK-PATTERNS) — 0 of 10 active for this project
+Framework is not multi-tenant, no UI, no migrations, not a production service. Multi-tenant gates (S-01 through S-04), audit-trail (S-05), browser-driven-verification (S-06), migration-phase (S-07), and SLO/SLI (S-08) all dormant. v2.6.0 additions: `mig-precondition-disclosure` (S-09) and `mig-dry-apply` (S-10) — both require postgres+migrations the framework itself doesn't ship; dormant by same rationale. See [.framework-state/active-gates.yaml](.framework-state/active-gates.yaml) for the dormancy reasons.
 
 ### Configurable — 18 of 25 active (project-selected)
 

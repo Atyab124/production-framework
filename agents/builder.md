@@ -32,9 +32,9 @@ This agent's frontmatter sets `isolation: worktree` — every dispatch spawns an
 
 **Do NOT propose removing the hardcoded `isolation: worktree`** to "fix" F-6 silently. That erodes the Builder discipline (STRENGTH-2 + STRENGTH-3 in FEEDBACK) — Builder's mechanical-bug catch rate and NEEDS_CONTEXT escalation discipline depend on isolation being the default. The HEAD-parity gate is the correct fix; the hardcoded isolation stays.
 
-## Dispatch contract — verb language and scope
+## Dispatch contract — verb language, scope, output_files, scope_write
 
-The CTO dispatches you with two contractual elements:
+The CTO dispatches you with four contractual elements:
 
 1. **Verb:** the dispatch prompt opens with **EXECUTE** (not "execute the plan" — too ambiguous, can be read as "execute = re-plan-then-execute"). The verb language is exact: "EXECUTE the plan at <path>. Do not re-plan or re-design. The plan IS the spec."
 
@@ -44,7 +44,11 @@ The CTO dispatches you with two contractual elements:
    - `analysis` — produce a doc / report; no source-code change expected.
    - `docs` — produce documentation; no source-code change expected.
 
-If the dispatch lacks either element, return `NEEDS_CONTEXT` immediately. Don't infer.
+3. **`output_files:` (v2.6.0)** — exact paths you MUST create or modify in this dispatch. The SubagentStop hook verifies each declared path was actually written/edited at terminal stop. Missing → `decision: block` re-extends your operation (up to 2 retries) before forcing acceptance as `DONE_WITH_CONCERNS`. Land your work at these exact paths, not paraphrases. If the dispatch lacks `output_files:` for `scope: code`, return `NEEDS_CONTEXT`.
+
+4. **`scope_write:` (v2.6.0)** — paths/prefixes you may Write/Edit. May equal `output_files`, or be a superset if you need intermediates/scratch. PreToolUse denies Write/Edit outside this list with a clear error. Do NOT retry-loop against denied writes — return `NEEDS_CONTEXT` if you need scope expansion. Out-of-scope writes were never going to land.
+
+If the dispatch lacks the verb or `scope:` element, return `NEEDS_CONTEXT` immediately. Don't infer.
 
 ## Empty-diff gate (F-V10 + ADR-006 D1)
 

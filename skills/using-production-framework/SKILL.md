@@ -54,8 +54,8 @@ For the full directory-selection + safety-verification workflow, invoke the `usi
 
 The framework's HARD-GATEs come in three categories:
 
-1. **Universal floor (9, always-active)** — hardcoded in the plugin: evidence-before-completion, no-fix-without-root-cause, N≥3 citations, active-gates-fresh, heavy-read-dispatch, gate-3-production-check, builder-empty-diff, no-PII-in-logs, data-loss-disclosure.
-2. **Stack-conditional (8)** — auto-activated when STACK-PATTERNS declares the trigger (multi-tenant → RLS gates fire; UI surface → Playwright; etc.).
+1. **Universal floor (11, always-active)** — hardcoded in the plugin: evidence-before-completion, no-fix-without-root-cause, N≥3 citations, active-gates-fresh, heavy-read-dispatch, gate-3-production-check, builder-empty-diff, no-PII-in-logs, data-loss-disclosure, **agent-output-file-landed** *(v2.6.0)*, **subagent-scope-write-enforcement** *(v2.6.0)*.
+2. **Stack-conditional (10)** — auto-activated when STACK-PATTERNS declares the trigger (multi-tenant → RLS gates fire; UI surface → Playwright; postgres+migrations → mig-precondition-disclosure; supabase_branching → mig-dry-apply; etc.).
 3. **Configurable (25)** — project-selected via `configure-project-gates`. Only the gates that fit the project's pain pattern and shape activate.
 
 If you see a session-start warning that `## Active Gates` is missing or stale, **invoke `configure-project-gates` first** before any other non-trivial work. The hook reads `.framework-state/active-gates.yaml` to know which configurable gates to enforce; without that file, the framework runs with only the universal floor + stack-conditional auto-set.

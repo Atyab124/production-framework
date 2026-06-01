@@ -276,6 +276,55 @@ citation:
   - "gh-ost README (cut-over irreversibility)"
 ```
 
+### U-10 — agent-output-file-landed (v2.6.0)
+
+```yaml
+id: agent-output-file-landed
+category: universal
+trigger_class: sub_agent_dispatch    # fires at SubagentStop
+trigger:
+  agent: "*"
+  state_when:
+    - "expected-outputs.jsonl has a matching row whose declared output_files paths do not all exist on disk"
+severity: critical
+enforcement_mode: block
+justification_required: true
+bypass_env: PF_BYPASS=agent-output-file-landed
+message: "Expected file(s) declared in dispatch's output_files: list were not written. SubagentStop returns decision: block + reason — prevents the subagent from stopping per Claude Code hook contract (verified verbatim 2026-05-27: 'Exit code 2 or decision: block prevents the subagent from stopping. The subagent continues working rather than terminating.'). Subagent gets the reason text as continued-operation context. Retry counter caps at 2 prevent-stop events; after exhaustion → audit log + accept stop with DONE_WITH_CONCERNS to avoid infinite extension. Backward compat: dispatches without output_files: declaration → advisory log, no block."
+owner: cto-mode + hooks/subagent-stop
+source: hooks/v2-6-helpers.sh::verify_expected_outputs_at_stop + hooks/pre-tool-use::record_expected_outputs
+citation:
+  - "CrewAI Task.output_file declarative output contracts (R3 binding N=4-6/6)"
+  - "LangGraph runtime-enforced parallel-write scope"
+  - "Anthropic Claude Code hooks reference (code.claude.com/docs/en/hooks) — SubagentStop decision: block semantics (verified verbatim 2026-05-27)"
+  - "FEEDBACK §1 (4 narrative-only DONE recurrences in single TaskIt session)"
+```
+
+### U-11 — subagent-scope-write-enforcement (v2.6.0)
+
+```yaml
+id: subagent-scope-write-enforcement
+category: universal
+trigger_class: pre_tool_use
+trigger:
+  tool: "Edit|Write"
+  state_when:
+    - "an in-flight sub-agent has declared scope_write[] in the last 30 min"
+    - "target FILE_PATH is NOT in the declared scope_write[]"
+severity: standard
+enforcement_mode: block
+justification_required: true
+bypass_env: PF_BYPASS=subagent-scope-write-enforcement
+message: "Write to target path is outside the in-flight sub-agent's declared scope_write[]. Mirror of v2.5 PR-9 read-side file-scope-intersection check. Options: (a) extend dispatch's scope_write, (b) use Bash + git apply for files outside scope, (c) PF_BYPASS=subagent-scope-write-enforcement if intentional."
+owner: cto-mode + hooks/pre-tool-use
+source: hooks/v2-6-helpers.sh::check_write_scope
+citation:
+  - "LangGraph runtime-enforced parallel-write scope (R3 binding)"
+  - "CrewAI Task.context + Task.output_file (R3 literal fit)"
+  - "Anthropic Claude Code hooks reference — PreToolUse hookSpecificOutput.permissionDecision: deny (verified verbatim 2026-05-27)"
+  - "FEEDBACK §14.2 Architect violated explicit file isolation (Wave 8 Asana cycle)"
+```
+
 ---
 
 ## Category 2 — Stack-Conditional (8 entries)
@@ -486,6 +535,61 @@ citation:
   - "Google SRE Book Ch. 4 (SLOs)"
   - "Google SRE Workbook Ch. 2"
   - "Honeycomb four golden signals"
+```
+
+### S-09 — mig-precondition-disclosure (Gate A) (v2.6.0)
+
+```yaml
+id: mig-precondition-disclosure
+category: stack_conditional
+activator: "STACK-PATTERNS declares postgres + migration directory (supabase/migrations OR db/migrations)"
+trigger_class: pre_tool_use
+trigger:
+  tool: "Edit|Write|Bash|mcp__claude_ai_Supabase__apply_migration"
+  file_pattern: "**/supabase/migrations/*.sql OR **/db/migrations/*.sql OR **/migrations/*.sql"
+  state_when:
+    - "(a) migration file lacks '-- DEPENDENCY v1' block, OR"
+    - "(b) '-- ASSUMED-FROM-PM-SPEC:' tag present (forbidden), OR"
+    - "(c) migration file lacks '-- ACTOR v1' block, OR"
+    - "(d) cross-dep scan: public.<table> referenced but not in LIVE-VERIFIED or THIS-MIG-INTRODUCES"
+severity: critical
+enforcement_mode: block
+justification_required: true
+bypass_env: PF_BYPASS=mig-precondition-disclosure
+message: "Migration baseline assumption disclosure missing or unverified. Closes R57/F-22 — 8 recurrences in single TaskIt cycle where DBE asserted baseline X exists; live DB / executor privilege / cross-mig dep order said otherwise. Required header blocks (version: v1) per Sqitch declarative dependencies precedent."
+owner: database-engineer + hooks/pre-tool-use
+source: hooks/v2-6-helpers.sh::check_mig_precondition_disclosure
+citation:
+  - "Sqitch plan-file bracketed dependency syntax + --requires flag (R2 verified verbatim 2026-05-27)"
+  - "Liquibase <preconditions> changelog tag"
+  - "Atlas migrate lint"
+  - "FEEDBACK §14.4 (8 R57/F-22 recurrences) + Appendix D (ACTOR block flagged framework-original)"
+```
+
+### S-10 — mig-dry-apply (Gate B) (v2.6.0)
+
+```yaml
+id: mig-dry-apply
+category: stack_conditional
+activator: "STACK-PATTERNS declares supabase_branching: true OR postgres_scratch_url available"
+trigger_class: post_tool_use
+trigger:
+  tool: "Edit|Write"
+  file_pattern: "**/supabase/migrations/*.sql OR **/db/migrations/*.sql OR **/migrations/*.sql"
+  state_when:
+    - "migration write succeeded AND Supabase Branching capability declared"
+severity: critical
+enforcement_mode: block
+justification_required: true
+bypass_env: PF_BYPASS=mig-dry-apply
+message: "Apply migration against Supabase Branch DB before committing. Catches SQL syntax + runtime semantics that pre-dispatch grep cannot see (Postgres 42702 ambiguity, missing column references in function bodies). v2.6.0 ships the predicate + state file; full MCP-driven apply invocation deferred to v2.6.1 (requires skill-driven Supabase MCP call from hook context, which v2.6.0 hook context lacks credentials for)."
+owner: database-engineer + hooks/post-tool-use
+source: hooks/v2-6-helpers.sh::run_mig_dry_apply
+citation:
+  - "Supabase Branching (R2 verified verbatim 2026-05-27: 'Each branch is a separate environment with its own Supabase instance and API credentials')"
+  - "Atlas migrate lint"
+  - "gh-ost shadow table cut-over pattern"
+  - "FEEDBACK §2 Gate B + §15.C3 (mock-green ≠ live-green pattern)"
 ```
 
 ---

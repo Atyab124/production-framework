@@ -1,5 +1,79 @@
 # Production Framework v2 — Release Notes
 
+## v2.6.0 (2026-05-27) — IN-DEVELOPMENT (mechanical-floor release)
+
+**Theme:** "The framework can no longer trust sub-agent claims on output or migration baseline." Single-concept release closing the two most-recurring failure classes via hook-enforceable mechanics. PROMPT-only fixes deferred to v2.6.x / v2.7 per the mechanical-floor filter (FEEDBACK Appendix C).
+
+**Plan persisted at:** [docs/plans/v2-6-0-mechanical-floor.md](docs/plans/v2-6-0-mechanical-floor.md).
+**Research backing:** 4 of 6 parallel researcher dispatches (2026-05-27) directly relevant — consolidated at [docs/research/v2-6-design-research-2026-05-27.md](docs/research/v2-6-design-research-2026-05-27.md). All citations partially `[CITATION-DEGRADED]` — CTO direct re-verification on 2026-05-27 raised 6/10 highest-leverage URLs to verbatim status; one critical R1 mechanic correction caught (SubagentStop `decision: block` *prevents stopping*, not *re-prompts*).
+
+### 5 new gates
+
+| ID | Category | Surface | Severity |
+|---|---|---|---|
+| `agent-output-file-landed` (U-10) | universal floor | SubagentStop hook | critical / block (with re-extend up to 2 retries) |
+| `subagent-scope-write-enforcement` (U-11) | universal floor | PreToolUse on `Write\|Edit` | standard / deny |
+| SubagentStop event correlation (`agent_id` + `agent_type`) | infrastructure | SubagentStop hook | (no gate — schema expansion) |
+| `mig-precondition-disclosure` Gate A (S-09) | stack-conditional (postgres + migrations) | PreToolUse on mig file/Bash/MCP apply | critical / block |
+| `mig-dry-apply` Gate B (S-10) | stack-conditional (supabase_branching) | PostToolUse on mig write | critical / block (predicate-only in v2.6.0; full MCP apply deferred to v2.6.1) |
+
+### Failure classes closed
+
+- **§1 sub-agent reliability** — 4 narrative-only DONE recurrences + Architect file-isolation violation + SubagentStop event-correlation orphans (per FEEDBACK §1 + §14.1 + §14.2)
+- **§2 migration precondition assumption** — 8 R57/F-22 recurrences in a single TaskIt cycle where DBE asserted baseline X exists; live DB / executor privilege / cross-mig dependency order said otherwise (FEEDBACK §14.4)
+
+### Files changed
+
+| Path | Change |
+|---|---|
+| `hooks/v2-6-helpers.sh` | NEW — 5 functions: `record_expected_outputs`, `check_write_scope`, `check_mig_precondition_disclosure`, `verify_expected_outputs_at_stop`, `run_mig_dry_apply` |
+| `hooks/pre-tool-use` | Source helper + 3 call sites (Agent dispatch, Edit/Write, Bash) + per-project v2.6 kill switch |
+| `hooks/subagent-stop` | Source helper + verify_expected_outputs_at_stop call + agent_id/agent_type capture (§1.3 correlation prep) |
+| `hooks/post-tool-use` | NEW — sources helper + calls `run_mig_dry_apply` |
+| `hooks/hooks.json` | Register PostToolUse on `Edit\|Write` matcher |
+| `docs/catalog/hard-gates.md` | 4 new gate rows: U-10, U-11, S-09, S-10 |
+| `docs/catalog/hard-gates.json` | Matching machine-readable rows; total_gates 42→46; universal 9→11; stack_conditional 8→10 |
+| `.claude-plugin/plugin.json` | version 2.5.0 → 2.6.0 |
+| `.claude-plugin/marketplace.json` | version 2.5.0 → 2.6.0 |
+| `RELEASE-NOTES.md` | This entry |
+| `docs/PROJECT-PLAN.md` | Phase 12 row added |
+| `docs/FEEDBACK.md` | 10 research-derived refinements + Appendix D (5 framework-novel items) |
+| `docs/plans/v2-6-0-mechanical-floor.md` | NEW — execute-ready plan |
+| `docs/research/v2-6-r{1,2,3,4,5,6}-*.md` | NEW — 6 parallel researcher outputs |
+| `docs/research/v2-6-design-research-2026-05-27.md` | NEW — consolidated research with 10 plan refinements + citation re-verification report |
+| `docs/notebook-lm-context.md` | NEW — context pack for plugin authorship (NotebookLM-ingestion-shaped) |
+| `agents/*.md` (12 files) | Receiving-side `output_files:` + `scope_write:` contract acknowledged in each agent's dispatch-contract section. Closes the recipient half of U-10/U-11 — sub-agents now know to land at declared paths and not retry-loop against denied writes. |
+| `skills/cto-mode/SKILL.md` | Dispatching-side: `output_files:` + `scope_write:` documented in dispatch contract section + Builder dispatch template (the CTO now emits the contract; agents now read it). |
+| `skills/configure-project-gates/SKILL.md` | Universal floor count 9→11; stack-conditional 8→10; S-09/S-10 activators documented. |
+| `skills/using-production-framework/SKILL.md` | SessionStart bootstrap text reflects new floor: U-10 + U-11 added to the always-active enumeration. |
+| `CLAUDE.md` | Framework's own Active Gates section updated for the meta-project (universal floor 9→11; stack-conditional 0/8→0/10 with explicit dormancy rationale). |
+
+### Backward compatibility
+
+All 4 new gates are additive. The 12 agent prompts ship in v2.6.0 with the contract acknowledged on the receiving side, so the common path (CTO emits → agent honors) works end-to-end on first session after upgrade. Dispatches that omit `output_files:` or `scope_write:` (e.g., external orchestrators that don't follow cto-mode's dispatch template) continue to function — graceful degradation logs an advisory warning + allows. The legacy `WRITE THE FILE` / `Hand off DONE with file at <path>` dispatch patterns are detected and surfaced as "missing_output_files_declaration" in `trigger-audit.jsonl` for migration nudge. Pre-existing migration files without `-- DEPENDENCY v1` / `-- ACTOR v1` blocks will trigger the new gate on next edit; bypass `PF_BYPASS=mig-precondition-disclosure` for the migration-period.
+
+### Rollback
+
+- **Per-gate:** `PF_BYPASS=<gate-id>` (logs to `bypass-log.jsonl`)
+- **v2.6.0-wide:** `touch .framework-state/v2-6-disabled` → hooks no-op the new functions; v2.5 behavior restored
+- **Version downgrade:** `/plugin install production-framework@2.5.0`; new state files (`expected-outputs.jsonl`, `mig-dry-apply-pending.jsonl`) ignored by v2.5
+
+### Out of scope (queued for v2.6.x / v2.7)
+
+Per the mechanical-floor filter (FEEDBACK Appendix C), 21 PROMPT-only fixes deferred. v2.6.1 targets agent-verification HYBRID fixes (`DONE_PENDING_VERIFICATION` token, `architect-evidence-coverage`, scope-cut-comment lint); v2.6.2 targets PM/Debugger discipline; v2.6.3 targets tier-selection retune; v2.7 targets `claude-md-design` skill + WebFetch sub-agent-envelope investigation (FEEDBACK §9.5 — new finding 2026-05-27).
+
+### Framework-novel items (FEEDBACK Appendix D)
+
+5 items ship in v2.6 with explicit "framework-original" tagging per ADR-003 Path B (researcher-validated novelty): ACTOR block, Section J table format, mechanical CLAUDE.md drift composite, `DONE_PENDING_VERIFICATION` token name, filesystem-aware `list_migration_slots`. None of these passed strict Path B promotion gates (BINDING N≥5) when audited by the `proposing-patterns` skill on 2026-05-27. They ship with disclosure; formal Path B proposals deferred to v2.7 when verification cycle accrues evidence.
+
+### Honest disclosure
+
+- **WebFetch wall.** Initial finding (FEEDBACK §9.5): all 6 v2.6 researchers hit `anthropic.com` / `arxiv.org` / JS-SPA domain denials. Refined finding from CTO direct-fetch re-verification: the denial is sub-agent-context-specific, not domain-specific. Main session WebFetched 6/10 successfully on the same domains. v2.7 investigation hypothesis: sub-agent contexts inherit a tighter permission envelope than the main session.
+- **R1 mechanic correction.** Original Researcher #1 dispatch claimed SubagentStop `decision: "block"` *re-prompts* the subagent. Direct verbatim docs reading (post-hoc CTO re-verification): `block` "prevents the subagent from stopping ... extends its operation" — the reason text is conveyed as continued-operation context, not as a new prompt turn. Functionally equivalent for the §1.1 use case; the framing matters for the retry-exhaustion behavior (max 2 prevent-stop events, then accept stop to avoid infinite extension).
+- **Heuristic correlation, not true ID match.** v2.6.0 correlates SubagentStop events to expected-outputs rows via subagent_type + recent-start heuristic (last 30 min). True agent_id correlation (per the Anthropic-documented `agent_id` field on SubagentStop) is captured in the active-agents.jsonl schema but not yet used as the primary match key — v2.7 follow-up per FEEDBACK §14.1.
+
+---
+
 ## v2.5.0 (2026-05-17) — IN-DEVELOPMENT
 
 **Theme:** FEEDBACK.md remediation. Closes 9 of 10 framework-fixable items from the 2026-05-17 TaskIt session (F-2 through F-11; F-1 is project-side debt deferred to TaskIt Phase 5 Researcher re-dispatch). Plus 2 perm-fix systematic updates (skipWebFetchPreflight + researcher.md route-around discipline) and 1 new structural check (file-scope intersection on Agent dispatch).

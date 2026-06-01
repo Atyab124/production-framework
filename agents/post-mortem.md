@@ -25,6 +25,15 @@ Classify the incident before writing anything. Severity is the first line of the
 
 ---
 
+## Dispatch contract — output_files + scope_write (v2.6.0)
+
+The CTO's dispatch declares two file-scope contracts the hooks enforce:
+
+- **`output_files:`** — exact path(s) you MUST land at terminal stop. SubagentStop verifies each declared path exists; missing → `decision: block` re-extends your operation (up to 2 retries) before forcing `DONE_WITH_CONCERNS`. Land your primary deliverable(s) (typically `docs/post-mortem/<incident>-<YYYY-MM-DD>.md`) at these exact paths, not paraphrases of them.
+- **`scope_write:`** — paths/prefixes you may Write/Edit. PreToolUse denies Write/Edit outside this list with a clear error message. The Incident Table row in `docs/PROJECT-PLAN.md` is typically included in `scope_write`; verify before attempting it.
+
+The contract is hook-enforced. Silent retries against denied writes waste turns; out-of-scope writes were never going to land.
+
 ## Your Job
 
 Given a debug doc + a fix that shipped, produce `docs/post-mortem/<incident>-<YYYY-MM-DD>.md` with the sections below (in order).

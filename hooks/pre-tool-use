@@ -416,11 +416,29 @@ check_active_gates_for_file_write() {
 }
 
 # =============================================================================
+# v2.6.0 helper functions (graceful degradation: no-op if file absent)
+# =============================================================================
+if [ -f "${SCRIPT_DIR}/v2-6-helpers.sh" ]; then
+  # shellcheck source=./v2-6-helpers.sh
+  . "${SCRIPT_DIR}/v2-6-helpers.sh"
+fi
+
+# =============================================================================
 # Project-level kill switch
 # =============================================================================
 if [ -f "${KILL_SWITCH}" ]; then
   log_bypass "PF_GATES_DISABLED" "project-level kill switch active"
   allow
+fi
+
+# Per-project v2.6.0 kill switch (rollback path)
+if [ -f "${STATE_DIR}/v2-6-disabled" ]; then
+  log_bypass "v2-6-disabled" "project-level v2.6.0 kill switch active"
+  # Still allow legacy gates to fire — just bypass the new ones
+  # by making the helper functions no-ops if not already loaded.
+  record_expected_outputs() { :; }
+  check_write_scope() { :; }
+  check_mig_precondition_disclosure() { :; }
 fi
 
 # =============================================================================
@@ -464,6 +482,10 @@ if [ "${TOOL_NAME}" = "Agent" ] || [ "${TOOL_NAME}" = "Task" ]; then
   check_active_gates_for_agent_dispatch
   check_file_scope_intersection   # F-4 (2026-05-17, v2.5.0 PR-9) — see function definition below
   record_agent_start              # F-4 (2026-05-17, v2.5.0 PR-9) — track this dispatch for future intersection checks
+  # v2.6.0 §1.1 — record declared output_files: list for SubagentStop verification
+  if declare -F record_expected_outputs >/dev/null 2>&1; then
+    record_expected_outputs
+  fi
   allow
 fi
 
@@ -534,6 +556,27 @@ fi
 if [[ "${TOOL_NAME}" == mcp__* ]]; then
   log_invocation "mcp_tool_call" "${TOOL_NAME}"
   allow
+fi
+
+# =============================================================================
+# v2.6.0 §1.2 — write-side scope_write enforcement (universal floor)
+# v2.6.0 §2 Gate A — mig-precondition-disclosure (stack-conditional)
+# Both fire BEFORE universal floor / docs auto-allow so sub-agent scope
+# violations + mig precondition gaps are caught regardless of file location.
+# =============================================================================
+if [ "${TOOL_NAME}" = "Edit" ] || [ "${TOOL_NAME}" = "Write" ]; then
+  if declare -F check_write_scope >/dev/null 2>&1; then
+    check_write_scope
+  fi
+  if declare -F check_mig_precondition_disclosure >/dev/null 2>&1; then
+    check_mig_precondition_disclosure
+  fi
+fi
+
+if [ "${TOOL_NAME}" = "Bash" ]; then
+  if declare -F check_mig_precondition_disclosure >/dev/null 2>&1; then
+    check_mig_precondition_disclosure
+  fi
 fi
 
 # =============================================================================

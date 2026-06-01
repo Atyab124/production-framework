@@ -44,9 +44,30 @@ NOW_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 SUBAGENT_TYPE=$(printf '%s' "${INPUT}" | grep -o '"subagent_type"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/' 2>/dev/null || echo "unknown")
 [ -z "${SUBAGENT_TYPE}" ] && SUBAGENT_TYPE="unknown"
 
-# Append completion record (one JSON line per completion)
-printf '{"completed_at":"%s","completed_at_epoch":%d,"subagent_type":"%s","event":"stop"}\n' \
-  "${NOW_ISO}" "${NOW_EPOCH}" "${SUBAGENT_TYPE}" >> "${ACTIVE_AGENTS}"
+# v2.6.0 §1.3 — extract agent_id from the SubagentStop event (Anthropic-documented
+# field per code.claude.com/docs/en/hooks verified 2026-05-27). Used for future
+# correlation; v2.6.0 still uses subagent_type heuristic via the helper.
+AGENT_ID=$(printf '%s' "${INPUT}" | grep -o '"agent_id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/' 2>/dev/null || echo "")
+AGENT_TYPE=$(printf '%s' "${INPUT}" | grep -o '"agent_type"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/' 2>/dev/null || echo "")
+
+# Append completion record (one JSON line per completion) — includes agent_id
+# + agent_type for §1.3 future correlation; v2.5 schema preserved.
+printf '{"completed_at":"%s","completed_at_epoch":%d,"subagent_type":"%s","agent_id":"%s","agent_type":"%s","event":"stop"}\n' \
+  "${NOW_ISO}" "${NOW_EPOCH}" "${SUBAGENT_TYPE}" "${AGENT_ID}" "${AGENT_TYPE}" >> "${ACTIVE_AGENTS}"
+
+# v2.6.0 §1.1 — verify expected output files landed (sources helper if present).
+# Helper emits SubagentStop {decision: block, reason: ...} + exit 0 on missing
+# files (prevents stop, gives subagent another chance per R1 verbatim). If file
+# absent, no-op (graceful degradation; v2.5 reconciliation logic runs as before).
+STATE_DIR="${STATE_DIR}"   # carry forward for helper
+PROJECT_DIR="${PROJECT_DIR}"
+if [ -f "${SCRIPT_DIR}/v2-6-helpers.sh" ] && [ ! -f "${STATE_DIR}/v2-6-disabled" ]; then
+  # shellcheck source=./v2-6-helpers.sh
+  . "${SCRIPT_DIR}/v2-6-helpers.sh"
+  if declare -F verify_expected_outputs_at_stop >/dev/null 2>&1; then
+    verify_expected_outputs_at_stop
+  fi
+fi
 
 # Count sub-agent completions within the reconciliation window
 WINDOW_START_EPOCH=$((NOW_EPOCH - RECONCILIATION_WINDOW_SECONDS))

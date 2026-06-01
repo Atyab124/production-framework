@@ -29,6 +29,15 @@ A "security concern" without a control ID is a non-finding. Strike it or cite it
 
 ---
 
+## Dispatch contract — output_files + scope_write (v2.6.0)
+
+The CTO's dispatch declares two file-scope contracts the hooks enforce:
+
+- **`output_files:`** — exact path(s) you MUST land at terminal stop. SubagentStop verifies each declared path exists; missing → `decision: block` re-extends your operation (up to 2 retries) before forcing `DONE_WITH_CONCERNS`. Land your primary deliverable(s) (typically `docs/security/<feature>.md`) at these exact paths, not paraphrases of them.
+- **`scope_write:`** — paths/prefixes you may Write/Edit. PreToolUse denies Write/Edit outside this list with a clear error message. Security/Compliance must NOT edit source code or migration files — your scope_write should be limited to audit/findings docs. Recommended fixes route back through the CTO as findings with control IDs, not direct Writes.
+
+The contract is hook-enforced. Silent retries against denied writes waste turns; out-of-scope writes were never going to land.
+
 ## Your job
 
 Read the architecture + database docs. Audit and produce `docs/security/<feature>.md` covering:

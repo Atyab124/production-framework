@@ -91,17 +91,21 @@ The sub-agent's system prompt (from `agents/builder.md`) describes WHAT each gat
 
 This injection mechanism is the substrate for per-project gate selection at the sub-agent layer. Without it, the configurable gates in skill bodies fire universally (the F-V38 over-trigger pattern). With it, only the project's chosen subset enforces.
 
-## Dispatch contract — scope_write + scope_read (F-4, v2.5.0)
+## Dispatch contract — scope_write + scope_read + output_files (F-4, v2.5.0 + v2.6.0)
 
 When dispatching a sub-agent, declare the **file-scope contract** at the top of the dispatch prompt:
 
 ```
+output_files: docs/research/<topic>.md
 scope_write: docs/research/<topic>.md
 scope_read: docs/architecture/<feature>.md, docs/specs/<feature>.md
 ```
 
-- **`scope_write`** — files this agent will create or modify. Single path or comma-separated list. Must be absolute-style (project-root-relative).
-- **`scope_read`** — files this agent will read for its work. Optional, but strongly recommended for cross-agent intersection detection.
+- **`output_files`** *(v2.6.0)* — explicit list of files this agent MUST create as its deliverable. Comma-separated. SubagentStop hook verifies each path exists post-DONE; missing → `decision: block` + reason re-extends the sub-agent's operation so it can call Write before stopping (R1 verbatim: "prevents the subagent from stopping ... extends its operation"). Citation: CrewAI `Task.output_file` declarative output contracts (R3 binding N=4-6/6). Closes 4 narrative-only DONE recurrences in single TaskIt session (FEEDBACK §1).
+- **`scope_write`** — files this agent will create or modify. Single path or comma-separated list. Must be absolute-style (project-root-relative). v2.6.0 §1.2 (`subagent-scope-write-enforcement`) denies Write/Edit to paths outside this list.
+- **`scope_read`** — files this agent will read for its work. Optional, but strongly recommended for cross-agent intersection detection (v2.5 PR-9).
+
+**`output_files` MAY differ from `scope_write`.** Example: an agent writes intermediates (logs, scratch files) it doesn't list as expected outputs — those go in `scope_write` only. The `output_files` list is what the SubagentStop verifier checks; `scope_write` is what the PreToolUse write-side check enforces.
 
 **Why:** the pre-tool-use hook (`hooks/pre-tool-use`, function `check_file_scope_intersection`) reads in-flight agents' `scope_write` declarations from `.framework-state/active-agents.jsonl` and computes the intersection with the new dispatch's `scope_read`. Non-empty intersection → BLOCKED with "upstream producer running on `<path>`; wait for completion." This closes FEEDBACK F-4 (transient inconsistency when producer-edit and consumer-read overlap on shared substrate docs).
 
@@ -138,6 +142,8 @@ Per F-V7 + F-V10: Builder dispatches must use unambiguous verb language and expl
 EXECUTE the plan at docs/plans/<feature>.md. Do not re-plan or re-design.
 The plan IS the spec.
 
+output_files: <exact paths the Builder MUST create/modify this dispatch — comma-separated>
+scope_write: <same as output_files OR superset if intermediates/scratch needed>
 scope: code
 file scope: <exact files / globs the Builder owns this dispatch>
 BASE_SHA: <current HEAD>
@@ -145,6 +151,8 @@ plan reference: <task numbers from the plan>
 
 Hand off when DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED.
 ```
+
+The `output_files` declaration (v2.6.0) is what the SubagentStop hook verifies — Builder that returns DONE without writing the declared paths gets re-extended (`decision: block` + reason) up to 2 retries, then accepted-with-`DONE_WITH_CONCERNS`. Empty-diff under `scope: code` still triggers Builder's own `EMPTY_DIFF_FLAG` self-attestation; the new gate adds output-path verification on top.
 
 The verb "EXECUTE" (uppercase) is contractual. Lowercase "execute" or any other verb makes the dispatch ambiguous and risks the F-V7 silent-no-op pattern. The `scope:` declaration is contractual; without it the Builder returns NEEDS_CONTEXT.
 
