@@ -46,13 +46,10 @@ record_expected_outputs() {
   mkdir -p "${STATE_DIR}" 2>/dev/null || true
   [ -f "${expected_file}" ] || touch "${expected_file}"
 
+  # F-V41 Defect 1 fix: use the shared line-oriented parser (defined in
+  # pre-tool-use, available at call time) instead of the truncating [^\n] regex.
   local output_files_str
-  output_files_str=$(printf '%s' "${AGENT_PROMPT}" \
-    | grep -oE 'output_files:[[:space:]]*[^\n]+' \
-    | sed 's/^output_files:[[:space:]]*//' \
-    | head -1 \
-    | tr -d '"[]' \
-    || echo "")
+  output_files_str=$(parse_labeled_field output_files "${AGENT_PROMPT}" | tr -d '"[]' || echo "")
 
   local now_epoch now_iso
   now_epoch=$(date +%s)
@@ -101,29 +98,22 @@ check_write_scope() {
   now_epoch=$(date +%s)
   window_start_epoch=$((now_epoch - 1800))
 
-  local in_flight_writes
-  in_flight_writes=$(
-    awk -v window_start="${window_start_epoch}" '
-      /"event":"start"/ {
-        match($0, /"started_at_epoch":[0-9]+/)
-        if (RSTART > 0) {
-          epoch_str = substr($0, RSTART, RLENGTH)
-          sub(/.*:/, "", epoch_str)
-          if (epoch_str + 0 >= window_start) {
-            match($0, /"scope_write":"[^"]*"/)
-            if (RSTART > 0) {
-              sw_str = substr($0, RSTART, RLENGTH)
-              sub(/"scope_write":"/, "", sw_str)
-              sub(/"$/, "", sw_str)
-              if (length(sw_str) > 0) print sw_str
-            }
-          }
-        }
-      }
-    ' "${active_agents_file}" 2>/dev/null || echo ""
-  )
+  # F-V41 Defect 3: only a SUB-AGENT's own write is scope-restricted. The CC hook
+  # contract carries agent_id/agent_type on subagent tool calls to distinguish
+  # them from main-thread calls; a main-session write has none → allow. This is
+  # what stopped the cascade where a stale in-flight marker blocked the CTO's own
+  # writes. (Empirical-verify on re-enable: a main-session Write's PreToolUse
+  # input must NOT carry agent_type; a sub-agent's MUST.)
+  local cur_agent_type
+  cur_agent_type=$(printf '%s' "${INPUT}" | grep -o '"agent_type"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+  [ -z "${cur_agent_type}" ] && return 0
 
-  # No in-flight agent with scope_write → main-session write; nothing to enforce.
+  # F-V41 Defect 2: starts MINUS stops (FIFO per type), restricted to THIS agent's
+  # own declared scope so one sub-agent is never bound by another's scope_write.
+  local in_flight_writes
+  in_flight_writes=$(compute_in_flight_writes "${active_agents_file}" "${window_start_epoch}" "${cur_agent_type}")
+
+  # This agent declared no scope_write → nothing to enforce.
   [ -z "${in_flight_writes}" ] && return 0
 
   # Check whether FILE_PATH_NORM matches any in-flight scope_write path.

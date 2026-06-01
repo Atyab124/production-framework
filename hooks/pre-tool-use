@@ -107,6 +107,71 @@ json_escape() {
   printf '%s' "$s"
 }
 
+# decode_json_string — inverse of json_escape: decode a JSON string value's
+# escapes back to raw text. Zero-dependency (bash parameter substitution, per
+# CLAUDE.md "no jq"; mirrors the line-594 \" -> " unescape). Escaped backslashes
+# are protected with a sentinel first, so "\\n" decodes to a literal backslash+n,
+# NOT a newline. (F-V41 Defect 1: AGENT_PROMPT used to keep escaped \n, which
+# both broke line-oriented parsing and fed the buggy [^\n] regex below.)
+decode_json_string() {
+  local s="$1"
+  s="${s//\\\\/$'\002'}"   # protect escaped backslashes
+  s="${s//\\n/$'\n'}"      # \n  -> newline
+  s="${s//\\t/$'\t'}"      # \t  -> tab
+  s="${s//\\r/$'\r'}"      # \r  -> CR
+  s="${s//\\\"/\"}"        # \"  -> "
+  s="${s//\\\//\/}"        # \/  -> /
+  s="${s//$'\002'/\\}"     # restore protected backslashes (single)
+  printf '%s' "$s"
+}
+
+# parse_labeled_field <label> <text> — print the value of the first line shaped
+# "<label>: <value>" (value = rest of that line). Operates line-oriented on
+# DECODED text (real newlines). F-V41 Defect 1 fix: replaces
+# `grep -oE '<label>:[[:space:]]*[^\n]+'` whose ERE [^\n] meant "not backslash,
+# not n" and truncated every path at its first 'n' ("production..." -> "productio").
+parse_labeled_field() {
+  local label="$1"
+  printf '%s' "$2" | sed -n "s/^[[:space:]]*${label}:[[:space:]]*\(.*\)\$/\1/p" | head -1
+}
+
+# compute_in_flight_writes <active_agents_file> <window_start_epoch> [type_filter]
+# Print the scope_write of every agent start that is still OPEN — i.e. a start
+# WITHOUT a matching stop (FIFO per agent type) AND within the time window.
+# F-V41 Defect 2 fix: the prior awk counted only "event":"start" and never
+# subtracted stops, so a completed agent stayed "in-flight" for 30 minutes and
+# false-positive-blocked the next legitimate handover. Stop events carry
+# agent_type (subagent-stop hook); starts carry subagent_type — correlate on that.
+compute_in_flight_writes() {
+  local file="$1" window_start="$2" type_filter="${3:-}"
+  [ -f "${file}" ] || return 0
+  awk -v window_start="${window_start}" -v want="${type_filter}" '
+    function sval(line, key,   s) {
+      if (match(line, "\"" key "\":\"[^\"]*\"")) {
+        s = substr(line, RSTART, RLENGTH); sub("\"" key "\":\"", "", s); sub("\"$", "", s); return s
+      } return ""
+    }
+    function nval(line, key,   s) {
+      if (match(line, "\"" key "\":[0-9]+")) { s = substr(line, RSTART, RLENGTH); sub(".*:", "", s); return s + 0 } return 0
+    }
+    /"event":"start"/ {
+      t = sval($0, "subagent_type"); n = ++oc[t];
+      sw[t SUBSEP n] = sval($0, "scope_write"); ep[t SUBSEP n] = nval($0, "started_at_epoch"); next
+    }
+    /"event":"stop"/ {
+      t = sval($0, "agent_type"); if (t == "") t = sval($0, "subagent_type"); closed[t]++; next
+    }
+    END {
+      for (k in sw) {
+        split(k, a, SUBSEP); t = a[1]; idx = a[2] + 0;
+        if (idx <= closed[t] + 0) continue;                       # closed by a stop (FIFO)
+        if (want != "" && t != want) continue;                    # optional type filter
+        if (ep[k] + 0 >= window_start && length(sw[k]) > 0) print sw[k];
+      }
+    }
+  ' "${file}" 2>/dev/null || true
+}
+
 log_decision() {
   ensure_state_dir
   local decision="$1"
@@ -286,9 +351,9 @@ check_file_scope_intersection() {
 
   local active_agents_file="${STATE_DIR}/active-agents.jsonl"
   local new_scope_read
-  new_scope_read=$(printf '%s' "${AGENT_PROMPT}" | grep -oE 'scope_read:[[:space:]]*[^\n]+' | sed 's/^scope_read:[[:space:]]*//' | head -1 | tr -d '[]' || echo "")
+  new_scope_read=$(parse_labeled_field scope_read "${AGENT_PROMPT}" | tr -d '[]' || echo "")
   local new_scope_write
-  new_scope_write=$(printf '%s' "${AGENT_PROMPT}" | grep -oE 'scope_write:[[:space:]]*[^\n]+' | sed 's/^scope_write:[[:space:]]*//' | head -1 | tr -d '[]' || echo "")
+  new_scope_write=$(parse_labeled_field scope_write "${AGENT_PROMPT}" | tr -d '[]' || echo "")
 
   # Graceful degradation: if no scope declarations in this dispatch, skip the check.
   # Pre-v2.5.0 agent prompts don't declare scope; we allow them through. v2.5.1+
@@ -307,30 +372,11 @@ check_file_scope_intersection() {
   now_epoch=$(date +%s)
   local window_start_epoch=$((now_epoch - 1800))
 
-  # Build a list of in-flight scope_write paths (one per line)
+  # Build a list of in-flight scope_write paths (one per line).
+  # F-V41 Defect 2: starts MINUS stops (FIFO per type) so completed producers
+  # drop out — the read-side check now allows a consumer once the producer stops.
   local in_flight_writes
-  in_flight_writes=$(
-    awk -v window_start="${window_start_epoch}" '
-      /"event":"start"/ {
-        # Extract started_at_epoch
-        match($0, /"started_at_epoch":[0-9]+/)
-        if (RSTART > 0) {
-          epoch_str = substr($0, RSTART, RLENGTH)
-          sub(/.*:/, "", epoch_str)
-          if (epoch_str + 0 >= window_start) {
-            # Extract scope_write field
-            match($0, /"scope_write":"[^"]*"/)
-            if (RSTART > 0) {
-              sw_str = substr($0, RSTART, RLENGTH)
-              sub(/"scope_write":"/, "", sw_str)
-              sub(/"$/, "", sw_str)
-              if (length(sw_str) > 0) print sw_str
-            }
-          }
-        }
-      }
-    ' "${active_agents_file}" 2>/dev/null || echo ""
-  )
+  in_flight_writes=$(compute_in_flight_writes "${active_agents_file}" "${window_start_epoch}")
 
   if [ -z "${in_flight_writes}" ]; then
     return 0    # nothing in flight; no intersection possible
@@ -374,8 +420,8 @@ record_agent_start() {
   now_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
   local scope_write_str scope_read_str
-  scope_write_str=$(printf '%s' "${AGENT_PROMPT}" | grep -oE 'scope_write:[[:space:]]*[^\n]+' | sed 's/^scope_write:[[:space:]]*//' | head -1 | tr -d '"' || echo "")
-  scope_read_str=$(printf '%s' "${AGENT_PROMPT}" | grep -oE 'scope_read:[[:space:]]*[^\n]+' | sed 's/^scope_read:[[:space:]]*//' | head -1 | tr -d '"' || echo "")
+  scope_write_str=$(parse_labeled_field scope_write "${AGENT_PROMPT}" | tr -d '"[]' || echo "")
+  scope_read_str=$(parse_labeled_field scope_read "${AGENT_PROMPT}" | tr -d '"[]' || echo "")
 
   printf '{"started_at":"%s","started_at_epoch":%d,"subagent_type":"%s","scope_write":"%s","scope_read":"%s","event":"start"}\n' \
     "${now_iso}" "${now_epoch}" "${SUBAGENT_TYPE:-unknown}" "${scope_write_str}" "${scope_read_str}" >> "${active_agents_file}"
@@ -460,7 +506,12 @@ COMMAND=$(printf '%s' "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"
 FILE_PATH=$(printf '%s' "$INPUT" | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
 SKILL_NAME=$(printf '%s' "$INPUT" | grep -o '"skill"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"skill"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
 SUBAGENT_TYPE=$(printf '%s' "$INPUT" | grep -o '"subagent_type"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"subagent_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
-AGENT_PROMPT=$(printf '%s' "$INPUT" | grep -o '"prompt"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"prompt"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+# F-V41 Defect 1: greedy capture (handles internal escaped quotes, like the
+# line-589 new_string parse) then decode escapes so scope_* / output_files lines
+# become real lines for parse_labeled_field. The old `[^"]*` truncated at the
+# first internal quote and kept escaped \n.
+AGENT_PROMPT_RAW=$(printf '%s' "$INPUT" | sed -n 's/.*"prompt"[[:space:]]*:[[:space:]]*"\(.*\)"[,}].*/\1/p' | head -1)
+AGENT_PROMPT=$(decode_json_string "${AGENT_PROMPT_RAW}")
 
 FILE_PATH_NORM="${FILE_PATH//\\//}"
 

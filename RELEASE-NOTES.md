@@ -1,5 +1,30 @@
 # Production Framework v2 — Release Notes
 
+## v2.6.1 (2026-06-01) — F-V41 fix (file-scope self-deadlock)
+
+**Theme:** Bug-fix patch. The v2.5/v2.6 file-scope enforcement was both non-functional and actively harmful: a path-parse bug truncated every scope path at its first `n` (`production-framework/...` became `productio`), creating a garbage in-flight marker that (a) false-positive-blocked legitimate sequential handovers and (b) then blocked the main session from clearing it — a 30-minute self-deadlock. Surfaced via dogfood, logged as F-V41, fixed under the superpowers `systematic-debugging` discipline (root cause → failing test → fix → verify).
+
+### Fixes
+- **Defect 1 (parse truncation):** new `decode_json_string` + `parse_labeled_field` helpers in `hooks/pre-tool-use`; replaced all 5 truncating parses whose negated-newline character class was interpreted as "not backslash, not n", cutting every path at its first `n`. Scope/output_files now decode escaped newlines and parse line-oriented.
+- **Defect 2 (no correlation):** new `compute_in_flight_writes` — in-flight = starts MINUS stops (FIFO per agent type, correlated on the stop event's `agent_type`); both read-side (`check_file_scope_intersection`) and write-side (`check_write_scope`) drop completed agents.
+- **Defect 3 (main-session block):** `check_write_scope` now reads the call's `agent_type` from the hook input — main-session writes (no agent context) are no longer scope-restricted; a sub-agent's write is checked only against its own type's scope.
+
+### Tests (new surface)
+- `tests/hooks/scope-parsing.test.sh` (3 assertions) + `tests/hooks/correlation-and-scope.test.sh` (5, including controls proving the gates still deny correctly) — all green; both hooks pass `bash -n`.
+
+### Files changed
+| Path | Change |
+|---|---|
+| `hooks/pre-tool-use` | `decode_json_string` + `parse_labeled_field` + `compute_in_flight_writes`; 4 parse sites + read-side in-flight fixed |
+| `hooks/v2-6-helpers.sh` | output_files parse via shared helper; `check_write_scope` writer-context + starts−stops correlation |
+| `tests/hooks/*.test.sh` | NEW regression tests |
+| `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | version 2.6.0 → 2.6.1 |
+| `docs/PROJECT-PLAN.md` | F-V41 logged + marked FIXED-in-source |
+
+**Caveats:** source-level fix — confirmed by unit/integration tests, **not yet live-verified** in an installed session (reinstall + restart to confirm). Defect 3 assumes a main-session Write's PreToolUse input carries no `agent_type` while a sub-agent's does (documented Claude Code contract; verify on re-enable). Citation-manifest row still owed per the CLAUDE.md binding rule.
+
+---
+
 ## v2.6.0 (2026-05-27) — IN-DEVELOPMENT (mechanical-floor release)
 
 **Theme:** "The framework can no longer trust sub-agent claims on output or migration baseline." Single-concept release closing the two most-recurring failure classes via hook-enforceable mechanics. PROMPT-only fixes deferred to v2.6.x / v2.7 per the mechanical-floor filter (FEEDBACK Appendix C).
